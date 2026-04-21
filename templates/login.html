@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Roboto', Arial, sans-serif;
+            background-color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: #3c4043;
+        }
+
+        .main-content {
+            text-align: center;
+            max-width: 420px;
+            width: 100%;
+            padding: 24px;
+            flex-grow: 1; /* Pushes the footer down */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .google-logo {
+            width: 90px;
+            margin: 0 auto 32px auto;
+            display: block;
+        }
+
+        .icon-circle {
+            width: 72px;
+            height: 72px;
+            background-color: #f1f3f4;
+            border-radius: 50%;
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto 20px auto;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 400;
+            margin: 0 0 12px 0;
+            color: #202124;
+        }
+
+        p {
+            font-size: 14px;
+            line-height: 1.5;
+            margin-bottom: 28px;
+            color: #5f6368;
+        }
+
+        .login-form {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 13px 15px;
+            font-size: 15px;
+            border: 1px solid #dadce0;
+            border-radius: 4px;
+            box-sizing: border-box;
+            outline: none;
+        }
+
+        .input-field:focus {
+            border: 2px solid #1a73e8;
+            padding: 12px 14px;
+        }
+
+        /* Login button directly under inputs */
+        .login-btn {
+            background-color: #1a73e8;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-weight: 500;
+            font-size: 14px;
+            border: none;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-top: 8px;
+        }
+
+        .login-btn:hover {
+            background-color: #1765cc;
+            box-shadow: 0 1px 3px rgba(60,64,67,0.3);
+        }
+
+        /* Request Access at the very bottom */
+        .footer-container {
+            width: 100%;
+            padding-bottom: 30px;
+            text-align: center;
+        }
+
+        .request-btn {
+            background-color: transparent;
+            color: #1a73e8;
+            padding: 10px 24px;
+            border: 1px solid #dadce0;
+            border-radius: 4px;
+            font-weight: 500;
+            font-size: 14px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background 0.2s;
+        }
+
+        .request-btn:hover {
+            background-color: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+
+<div class="main-content">
+    <img src="https://upload.wikimedia.org/wikipedia/commons/2/2f/Google_2015_logo.svg" alt="Google" class="google-logo">
+
+    <div class="icon-circle">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="#5f6368">
+            <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/>
+        </svg>
+    </div>
+    
+    <h1>You need access</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          {% if category == 'error' %}
+            <div style="color: #d93025; font-size: 14px; margin-bottom: 10px;">{{ message }}</div>
+          {% else %}
+            <div style="color: #1a73e8; font-size: 14px; margin-bottom: 15px; font-weight: 500;">{{ message }}</div>
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <p>Sign in to your account to access this private document.</p>
+
+    <form class="login-form" action="/login" method="POST">
+        <input type="text" name="username" class="input-field" placeholder="Username" required>
+        <input type="password" name="password" class="input-field" placeholder="Password" required>
+        <button type="submit" class="login-btn">Log in</button>
+    </form>
+</div>
+
+<div class="footer-container">
+    <button type="button" class="request-btn" onclick="location.href='/signup'">Request access</button>
+</div>
+
+</body>
+</html>

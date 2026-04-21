@@ -1,0 +1,173 @@
+<!--templates/template.html-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} | Galactic Vault</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+{% if session.get('user_id') %}
+<div id="chat-container">
+    <div id="chat-header" onclick="toggleChat()">
+        <span style="font-size: 0.7rem; letter-spacing: 0.1em; font-weight: 700;">COMM-LINK</span>
+        <span id="chat-arrow">▲</span>
+    </div>
+    <div id="chat-messages"></div>
+    <div id="chat-input-area">
+        <input type="text" id="chat-input" placeholder="Transmit message..." autocomplete="off">
+    </div>
+</div>
+
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+{% endif %}
+<body class="{% if view == 'login' %}login-view{% endif %}">
+    <div class="bg-glow"></div>
+
+    {% if view != "login" %}
+    <aside class="sidebar">
+        <div class="sidebar-logo">GALACTIC VAULT</div>
+        <nav class="sidebar-nav">
+            <a href="/" class="nav-item {% if view == 'menu' %}active{% endif %}">Game Library</a>
+            <a href="#" id="nav-recent" class="nav-item">Recently Played</a>
+            <a href="#" id="nav-favorites" class="nav-item">Favorites</a>
+            <a href="/settings" class="nav-item {% if view == 'settings' %}active{% endif %}">System Configuration</a>
+            {% if session.get('user_id') == 'admin' %}
+            <a href="/admin/dashboard" class="nav-item {% if view == 'admin' %}active{% endif %}">
+                Admin Dashboard
+            </a>
+            {% endif %}
+        </nav>
+        <div class="sidebar-footer">
+            <div style="font-size: 0.65rem; color: #6b7280; margin-bottom: 10px; text-align: center; text-transform: uppercase;">ID: {{ session.get('user_id') }}</div>
+            <a href="/logout" class="btn-ui secondary" style="font-size: 0.75rem; padding: 10px;">LOGOUT</a>
+        </div>
+    </aside>
+    {% endif %}
+
+    <main class="main-wrapper">
+        <div class="container">
+            <h1>{{ header }}</h1>
+
+            {% with messages = get_flashed_messages() %}
+              {% if messages %}
+                {% for message in messages %}
+                  <div class="error-msg">{{ message }}</div>
+                {% endfor %}
+              {% endif %}
+            {% endwith %}
+
+            {% if view == "menu" %}
+                {% if view == "menu" %}
+                    <div id="search-container" style="margin-bottom: 20px; position: relative;">
+                        <input type="text" id="game-search" placeholder="Search game database..." 
+                            style="margin-bottom: 0; text-align: left; padding-left: 45px;">
+                        <span style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--primary); opacity: 0.6;">🔍</span>
+                    </div>
+                {% endif %}
+                <div id="game-grid"></div>
+
+            {% elif view == "player" %}
+                <div class="game-frame-wrapper">
+                    <iframe id="game-iframe" 
+                            src="/games/{{ game_name }}/index.html" 
+                            sandbox="allow-scripts allow-same-origin allow-forms" 
+                            allowfullscreen>
+                    </iframe>
+                </div>
+                <div class="game-footer">
+                    <h2 style="margin:0; font-size:1.1rem; font-weight: 500;">{{ game_name|upper }}</h2>
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn-ui" style="width:auto; padding:8px 15px; font-size:0.75rem;" onclick="toggleFullscreen()">FULLSCREEN</button>
+                        <a href="/" class="btn-ui secondary" style="width:auto; padding:8px 15px; font-size:0.75rem; margin:0;">BACK</a>
+                    </div>
+                </div>
+                {% if external %}
+                <div class="info-bar">
+                    <div class="info-icon">ⓘ</div>
+                    <div class="info-text">
+                        <strong>CROSS-DOMAIN BRIDGE</strong>
+                        This game is established via a secure link to a partner network. Because the data originates from an external server, the Vault cannot filter third-party advertisements. If the partner's host site is restricted, this uplink will become inaccessible.
+                    </div>
+                </div>
+                {% endif %}
+                {% if description %}
+                    <div class="game-desc" style="margin-top: 15px; color: #9ca3af; font-size: 0.95rem; line-height: 1.6; border-left: 2px solid var(--border); padding-left: 15px;">
+                        {{ description }}
+                    </div>
+                {% endif %}
+
+            {% elif view == "settings" %}
+                <div style="max-width: 600px; margin: 0 auto; width: 100%;">
+                    
+                    <div class="container" style="padding: 25px; background: rgba(0,0,0,0.3); backdrop-filter: none; border-radius: 16px; margin-bottom: 25px;">
+                        <h3 style="font-size: 0.8rem; color: var(--primary); letter-spacing: 0.2em; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-top: 0; margin-bottom: 20px;">INTERFACE PREFERENCES</h3>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 0.95rem;">Enable Light Mode</span>
+                            <label class="theme-switch">
+                                <input type="checkbox" id="theme-toggle">
+                                <span class="theme-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="container" style="padding: 25px; background: rgba(0,0,0,0.3); backdrop-filter: none; border-radius: 16px; margin-bottom: 20px;">
+                        <h3 style="font-size: 0.8rem; color: var(--primary); letter-spacing: 0.2em; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-top: 0; margin-bottom: 20px;">ACCOUNT SECURITY</h3>
+                        
+                        <form action="/update-credentials" method="POST" style="margin-bottom: 40px;">
+                            <h4 style="margin-top: 0; font-size: 0.9rem; margin-bottom: 15px; font-weight: 500;">Change Username</h4>
+                            <input type="hidden" name="action" value="username">
+                            <input type="text" name="new_username" placeholder="New Username" required style="text-align: left;">
+                            <input type="password" name="current_password" placeholder="Current Password" required style="width: 100%; padding: 14px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--border); border-radius: 12px; color: var(--text); margin-bottom: 20px; text-align: left;">
+                            <button type="submit" class="btn-ui" style="padding: 12px; font-size: 0.85rem;">UPDATE USERNAME</button>
+                        </form>
+
+                        <form action="/update-credentials" method="POST">
+                            <h4 style="margin-top: 0; font-size: 0.9rem; margin-bottom: 15px; font-weight: 500;">Change Access Code (Password)</h4>
+                            <input type="hidden" name="action" value="password">
+                            <input type="password" name="current_password" placeholder="Current Password" required style="width: 100%; padding: 14px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--border); border-radius: 12px; color: var(--text); margin-bottom: 20px; text-align: left;">
+                            <input type="password" name="new_password" placeholder="New Password" required style="width: 100%; padding: 14px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--border); border-radius: 12px; color: var(--text); margin-bottom: 20px; text-align: left;">
+                            <button type="submit" class="btn-ui" style="padding: 12px; font-size: 0.85rem;">UPDATE PASSWORD</button>
+                        </form>
+                    </div>
+                </div>
+
+            {% elif view == "admin" %}
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div class="container" style="padding: 20px; background: rgba(0,0,0,0.3); backdrop-filter: none; border-radius: 16px;">
+                        <h3 style="font-size: 0.7rem; color: var(--primary); letter-spacing: 0.2em;">ONLINE PILOTS</h3>
+                        <ul id="live-user-list" style="list-style: none; padding: 0;">
+                            <li style="opacity:0.5; font-size:0.8rem;">Initializing uplink...</li>
+                        </ul>
+                    </div>
+                    <div class="container" style="padding: 20px; background: rgba(0,0,0,0.3); backdrop-filter: none; border-radius: 16px;">
+                        <h3 style="font-size: 0.7rem; color: #f87171; letter-spacing: 0.2em;">PENDING ACCESS</h3>
+                        {% if not pending_requests %}
+                            <p style="font-size: 0.8rem; opacity: 0.5;">No pending requests.</p>
+                        {% else %}
+                            {% for user, info in pending_requests.items() %}
+                                <div style="background: var(--glass); padding: 15px; border-radius: 12px; margin-bottom: 10px; border: 1px solid var(--border);">
+                                    <div style="font-weight: bold; margin-bottom: 5px; font-size: 0.9rem;">{{ user }}</div>
+                                    <div style="font-size: 0.75rem; opacity: 0.7; margin-bottom: 10px;">
+                                        Msg: {{ info.message }}
+                                    </div>
+                                    <div style="display: flex; gap: 10px;">
+                                        <form action="/admin/action/approve/{{ user }}" method="POST" style="flex: 1;">
+                                            <button class="btn-ui" style="padding: 8px; font-size: 0.65rem;">APPROVE</button>
+                                        </form>
+                                        <form action="/admin/action/deny/{{ user }}" method="POST" style="flex: 1;">
+                                            <button class="btn-ui secondary" style="padding: 8px; font-size: 0.65rem; color: #f87171;">DENY</button>
+                                        </form>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </main>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
