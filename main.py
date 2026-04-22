@@ -1,3 +1,4 @@
+#main.py
 import os
 import socket
 import uuid
@@ -47,6 +48,12 @@ def init_db():
     # History: Recent plays
     conn.execute('''CREATE TABLE IF NOT EXISTS history 
                     (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, game_name TEXT, last_played TIMESTAMP)''')
+    # Issues: User reports
+    conn.execute('''CREATE TABLE IF NOT EXISTS issues 
+                    (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, game_name TEXT, report TEXT, timestamp TEXT)''')
+    # Known Issues: Admin notes shown to users
+    conn.execute('''CREATE TABLE IF NOT EXISTS known_issues 
+                    (id INTEGER PRIMARY KEY AUTOINCREMENT, game_name TEXT, note TEXT)''')
     conn.commit()
     conn.close()
 
@@ -200,9 +207,16 @@ def play(game_name):
     
     record_play(session['user_id'], game_name)
     config = get_game_config(game_name)
+    
+    # Fetch known issues for this specific game
+    conn = get_db_connection()
+    known_issues = conn.execute('SELECT note FROM known_issues WHERE game_name = ?', (game_name,)).fetchall()
+    conn.close()
+    
     return render_template('template.html', view="player", title=game_name.upper(), 
                            header="System Online", game_name=game_name,
-                           external=config['external'], description=config['description'])
+                           external=config['external'], description=config['description'],
+                           known_issues=known_issues)
 
 @app.route('/api/games')
 def api_games():
@@ -284,17 +298,21 @@ def admin_dashboard():
     if session.get('user_id') != 'admin':
         flash("UNAUTHORIZED ACCESS DETECTED", "error")
         return redirect(url_for('index'))
-
+    
     conn = get_db_connection()
     pending_requests = conn.execute('SELECT * FROM requests').fetchall()
+    
+    # Fetch user reports and active known issues
+    user_reports = conn.execute('SELECT * FROM issues ORDER BY timestamp DESC').fetchall()
+    current_known = conn.execute('SELECT * FROM known_issues').fetchall()
     conn.close()
     
-    # Convert sqlite rows to dict for template compatibility
     requests_dict = {row['username']: dict(row) for row in pending_requests}
 
     return render_template('template.html', view="admin", title="Admin Terminal", 
                            header="System Control", pending_requests=requests_dict,
-                           active_pilots=active_users)
+                           active_pilots=active_users, user_reports=user_reports, 
+                           current_known=current_known)
 
 @app.route('/admin/action/<action>/<username>', methods=['POST'])
 def admin_action(action, username):
@@ -343,6 +361,8 @@ def handle_disconnect():
 
 @socketio.on('message')
 def handle_message(data):
+    if not data or not data.get('msg'):
+        return
     user_id = session.get('user_id', 'Unknown Pilot')
     msg_data = {'user': user_id, 'msg': data['msg'], 'time': datetime.now().strftime("%H:%M")}
     save_message(msg_data)
@@ -375,7 +395,7 @@ def update_credentials():
     conn = get_db_connection()
     try:
         if action == 'username':
-            new_username = request.form.get('new_username').strip()
+            new_username = request.form.get('new_username', '').strip()
             if not new_username:
                 flash("ERROR: INVALID USERNAME", "error")
             else:
@@ -391,7 +411,7 @@ def update_credentials():
                 flash("USERNAME UPDATED SUCCESSFULLY")
 
         elif action == 'password':
-            new_password = request.form.get('new_password').strip()
+            new_password = request.form.get('new_password', '').strip()
             conn.execute('UPDATE users SET password = ? WHERE username = ?', (new_password, user_id))
             flash("PASSWORD UPDATED SUCCESSFULLY")
         
@@ -402,6 +422,80 @@ def update_credentials():
         conn.close()
 
     return redirect(url_for('settings'))
+
+@app.route('/api/report-issue', methods=['POST'])
+def report_issue():
+    if 'user_id' not in session: return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True)
+    if not data or not data.get('game') or not data.get('report'):
+        return jsonify({"error": "Missing required fields"}), 400
+    
+    conn = get_db_connection()
+    try:
+        conn.execute('INSERT INTO issues (user_id, game_name, report, timestamp) VALUES (?, ?, ?, ?)',
+                     (session['user_id'], data['game'], data['report'], datetime.now().strftime("%Y-%m-%d %H:%M")))
+        conn.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+@app.route('/admin/promote-report', methods=['POST'])
+def promote_report():
+    if session.get('user_id') != 'admin': return redirect(url_for('index'))
+    
+    report_id = request.form.get('report_id')
+    game_name = request.form.get('game_name')
+    note = request.form.get('note')
+    
+    if not report_id or not game_name or not note:
+        flash("ERROR: Missing required fields", "error")
+        return redirect(url_for('admin_dashboard'))
+
+    conn = get_db_connection()
+    try:
+        # 1. Add to the public alerts table
+        conn.execute('INSERT INTO known_issues (game_name, note) VALUES (?, ?)', (game_name, note))
+        # 2. Remove from the private reports table
+        conn.execute('DELETE FROM issues WHERE id = ?', (report_id,))
+        conn.commit()
+        flash(f"Report for {game_name} promoted to Known Issue.", "success")
+    except Exception as e:
+        flash(f"ERROR: {str(e)}", "error")
+    finally:
+        conn.close()
+    
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/known-issue/<action>', methods=['POST'])
+def admin_known_issue(action):
+    if session.get('user_id') != 'admin': return redirect(url_for('index'))
+    
+    conn = get_db_connection()
+    try:
+        if action == 'add':
+            game_name = request.form.get('game_name', '').strip()
+            note = request.form.get('note', '').strip()
+            if not game_name or not note:
+                flash("ERROR: Game name and note are required", "error")
+            else:
+                conn.execute('INSERT INTO known_issues (game_name, note) VALUES (?, ?)', (game_name, note))
+                conn.commit()
+                flash("Manual alert posted.", "success")
+        elif action == 'remove':
+            issue_id = request.form.get('issue_id')
+            if not issue_id:
+                flash("ERROR: Issue ID is required", "error")
+            else:
+                conn.execute('DELETE FROM known_issues WHERE id = ?', (issue_id,))
+                conn.commit()
+                flash("System alert resolved.", "success")
+    except Exception as e:
+        flash(f"ERROR: {str(e)}", "error")
+    finally:
+        conn.close()
+    return redirect(url_for('admin_dashboard'))
 
 if __name__ == '__main__':
     init_db() # Create the DB and tables on launch

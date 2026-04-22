@@ -80,8 +80,21 @@
                     <h2 style="margin:0; font-size:1.1rem; font-weight: 500;">{{ game_name|upper }}</h2>
                     <div style="display:flex; gap:10px;">
                         <button class="btn-ui" style="width:auto; padding:8px 15px; font-size:0.75rem;" onclick="toggleFullscreen()">FULLSCREEN</button>
-                        <a href="/" class="btn-ui secondary" style="width:auto; padding:8px 15px; font-size:0.75rem; margin:0;">BACK</a>
+                        <button class="btn-ui secondary" style="width:auto; padding:8px 15px; font-size:0.75rem; margin:0;" onclick="submitReport('{{ game_name }}')">REPORT ISSUE</button>
                     </div>
+
+                    {% if known_issues %}
+                    <div class="info-bar" style="border-color: #f87171; margin-top: 15px; background: rgba(248, 113, 113, 0.1);">
+                        <div class="info-text" style="color: #f87171;">
+                            <strong>SYSTEM ALERT: KNOWN ISSUES</strong>
+                            <ul style="margin: 5px 0 0 0; padding-left: 20px; font-size: 0.85rem;">
+                                {% for issue in known_issues %}
+                                <li>{{ issue.note }}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    </div>
+                    {% endif %}
                 </div>
                 {% if external %}
                 <div class="info-bar">
@@ -165,6 +178,49 @@
                         {% endif %}
                     </div>
                 </div>
+                <div class="container" style="grid-column: span 2; margin-top: 20px; background: rgba(0,0,0,0.3); border-radius: 16px; padding: 20px;">
+                    <h3 style="font-size: 0.7rem; color: var(--primary); letter-spacing: 0.2em; margin-bottom: 20px;">MAINTENANCE LOGS</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div>
+        <h4 style="font-size: 0.85rem; margin-bottom: 15px;">Recent User Reports</h4>
+        <div style="max-height: 400px; overflow-y: auto;">
+            {% for r in user_reports %}
+            <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; margin-bottom: 10px; border: 1px solid var(--border);">
+                <div style="font-size: 0.7rem; color: var(--primary);">{{ r.timestamp }} | {{ r.user_id }}</div>
+                <div style="font-weight: bold; font-size: 0.8rem; margin: 4px 0;">GAME: {{ r.game_name }}</div>
+                <div style="font-size: 0.85rem; opacity: 0.8; margin-bottom: 10px;">{{ r.report }}</div>
+                <button class="btn-ui" style="font-size: 0.6rem; padding: 5px 10px; width: auto;" 
+                    onclick="promoteReport('{{ r.id }}', '{{ r.game_name }}', '{{ r.report|replace("'", "\\'")|replace("\n", " ") }}')">
+                    PROMOTE TO KNOWN ISSUE
+                </button>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div>
+        <h4 style="font-size: 0.85rem; margin-bottom: 15px;">Active System Alerts</h4>
+        {% for k in current_known %}
+        <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; margin-bottom: 8px; border-left: 3px solid var(--primary);">
+            <div style="flex: 1;">
+                <div style="font-size: 0.7rem; font-weight: bold; color: var(--primary);">{{ k.game_name|upper }}</div>
+                <div style="font-size: 0.8rem;">{{ k.note }}</div>
+            </div>
+            <form action="/admin/known-issue/remove" method="POST" style="margin: 0;">
+                <input type="hidden" name="issue_id" value="{{ k.id }}">
+                <button type="submit" class="btn-ui" style="background:#4ade80; color: black; font-size: 0.6rem; padding: 5px 10px; width: auto; border: none;">RESOLVE</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<form id="promote-form" action="/admin/promote-report" method="POST" style="display: none;">
+    <input type="hidden" name="report_id" id="p-report-id">
+    <input type="hidden" name="game_name" id="p-game-name">
+    <input type="hidden" name="note" id="p-note">
+</form>
+</div>
             {% endif %}
         </div>
     </main>

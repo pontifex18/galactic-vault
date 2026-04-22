@@ -206,3 +206,31 @@ if (themeToggle) {
         localStorage.setItem('vault_theme', isLight ? 'light' : 'dark');
     });
 }
+// Function to handle the Report Issue prompt
+function submitReport(gameName) {
+    const report = prompt(`Briefly describe the issue with ${gameName.toUpperCase()}:`);
+    if (report && report.trim() !== "") {
+        fetch('/api/report-issue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ game: gameName, report: report })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === "success") {
+                alert("Transmission received. Engineers have been notified.");
+            }
+        })
+        .catch(err => alert("Transmission failed. Check connection."));
+    }
+}
+
+function promoteReport(reportId, gameName, originalReport) {
+    const customNote = prompt(`Enter public description for ${gameName}:`, originalReport);
+    if (customNote !== null) {
+        document.getElementById('p-report-id').value = reportId;
+        document.getElementById('p-game-name').value = gameName;
+        document.getElementById('p-note').value = customNote;
+        document.getElementById('promote-form').submit();
+    }
+}
