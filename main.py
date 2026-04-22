@@ -6,11 +6,15 @@ import sqlite3
 import json
 import random
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, jsonify
 from flask_socketio import SocketIO, emit
+from werkzeug.security import generate_password_hash, check_password_hash
+
+load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = 'galaxy_key' 
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'default-unsecure-key-for-dev-only')
 PORT = 8000
 GAMES_DIR = "games"
 DB_FILE = "galactic_vault.db"
@@ -60,11 +64,11 @@ def init_db():
 # --- AUTHENTICATION HELPERS ---
 
 def check_credentials(username, password):
-    """Validates credentials against the SQLite database."""
+    """Validates hashed credentials against the SQLite database."""
     conn = get_db_connection()
     user = conn.execute('SELECT password FROM users WHERE username = ?', (username,)).fetchone()
     conn.close()
-    if user and user['password'] == password:
+    if user and check_password_hash(user['password'], password):
         return True
     return False
 
@@ -324,7 +328,8 @@ def admin_action(action, username):
 
     if req:
         if action == 'approve':
-            conn.execute('INSERT INTO users (username, password) VALUES (?, ?)', (req['username'], req['password']))
+            hashed_pw = generate_password_hash(req['password'])
+            conn.execute('INSERT INTO users (username, password) VALUES (?, ?)', (req['username'], hashed_pw))
             conn.execute('DELETE FROM requests WHERE username = ?', (username,))
             flash(f"User {username} approved.", "success")
         elif action == 'deny':
@@ -412,7 +417,8 @@ def update_credentials():
 
         elif action == 'password':
             new_password = request.form.get('new_password', '').strip()
-            conn.execute('UPDATE users SET password = ? WHERE username = ?', (new_password, user_id))
+            hashed_pw = generate_password_hash(new_password)
+            conn.execute('UPDATE users SET password = ? WHERE username = ?', (hashed_pw, user_id))
             flash("PASSWORD UPDATED SUCCESSFULLY")
         
         conn.commit()
