@@ -244,3 +244,122 @@ body.light-mode input { background: #fff !important; color: #111827 !important; 
 }
 input:checked + .theme-slider { background-color: var(--primary); }
 input:checked + .theme-slider:before { transform: translateX(20px); background-color: white; }
+/* --- CHAT VIEW LAYOUT --- */
+.chat-dual-layout {
+    display: flex;
+    gap: 20px;
+    width: 100%;
+    max-width: 1400px;
+}
+
+.chat-area { flex: 3; } 
+.users-area { flex: 1; }
+
+/* --- PILOT LIST STYLES --- */
+#pilot-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 10px;
+}
+
+.pilot-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    transition: all 0.2s ease;
+}
+
+.pilot-card:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--primary);
+}
+
+.pilot-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.pilot-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: #000;
+}
+
+.pilot-name {
+    font-size: 0.9rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.status-dot.online {
+    background: #4ade80; /* Green */
+    box-shadow: 0 0 10px rgba(74, 222, 128, 0.4);
+}
+
+.status-dot.offline {
+    background: #f87171; /* Red */
+    opacity: 0.4;
+}
+/* Container for the pilot list */
+#pilot-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+/* Individual Pilot Row */
+.pilot-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between; /* Name left, Dot right */
+    padding: 10px 15px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    transition: transform 0.3s ease; /* Smooth movement when sorting */
+}
+
+.pilot-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.pilot-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #000;
+}
+
+/* The Status Dot */
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.status-dot.online {
+    background: #4ade80; /* Neon Green */
+    box-shadow: 0 0 10px rgba(74, 222, 128, 0.5);
+}
+
+.status-dot.offline {
+    background: #f87171; /* Red */
+    opacity: 0.4;
+}

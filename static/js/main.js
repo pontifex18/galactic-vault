@@ -1,3 +1,9 @@
+// Read CSRF token injected by server into a meta tag (available globally)
+const CSRF_TOKEN = (() => {
+    const m = document.querySelector('meta[name="csrf-token"]');
+    return m ? m.getAttribute('content') : null;
+})();
+
 document.addEventListener("DOMContentLoaded", function() {
     const gameGrid = document.getElementById("game-grid");
     const searchInput = document.getElementById("game-search");
@@ -6,12 +12,18 @@ document.addEventListener("DOMContentLoaded", function() {
 
     let isLoading = false;
     let isSearching = false; 
+    const displayedGames = new Set();
+    let cachedFavNames = null;
+
 
     // --- 1. UTILITY: CLEAR AND ACTIVATE ---
     function setActiveTab(btn) {
         document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
         btn.classList.add('active');
-        if (gameGrid) gameGrid.innerHTML = "";
+        if (gameGrid) {
+            gameGrid.innerHTML = "";
+            displayedGames.clear();
+        }
     }
 
     // --- 2. SEARCH LOGIC ---
@@ -79,28 +91,36 @@ document.addEventListener("DOMContentLoaded", function() {
 
     function renderGames(games) {
         if (!gameGrid) return;
-        fetch('/api/favorites').then(res => res.json()).then(favs => {
-            const favNames = favs.map(f => f.name);
+        // Ensure favorites are fetched once and cached per view
+        const ensureFavs = cachedFavNames ? Promise.resolve(cachedFavNames) : fetch('/api/favorites').then(r => r.json()).then(f => f.map(x => x.name));
+        ensureFavs.then(favNames => {
+            cachedFavNames = favNames;
             games.forEach(game => {
-                // SAFETY: Don't add if already exists in the current view
-                if (gameGrid.querySelector(`[data-game="${game.name}"]`)) return;
+                if (displayedGames.has(game.name)) return;
 
                 const link = document.createElement("a");
                 link.className = "game-link";
-                link.href = "/play/" + game.name;
-                link.setAttribute('data-game', game.name); 
+                link.setAttribute('href', "/play/" + encodeURIComponent(game.name));
+                link.dataset.game = game.name;
 
                 const heart = document.createElement("span");
                 heart.className = "fav-heart" + (favNames.includes(game.name) ? " is-favorite" : "");
-                heart.innerHTML = favNames.includes(game.name) ? "❤️" : "🤍";
-                heart.onclick = (e) => { 
-                    e.preventDefault(); 
-                    toggleFav(game.name, heart); 
+                heart.textContent = favNames.includes(game.name) ? "❤️" : "🤍";
+                heart.onclick = (e) => {
+                    e.preventDefault();
+                    toggleFav(game.name, heart);
                 };
 
                 const thumbBox = document.createElement("div");
                 thumbBox.className = "thumb-box";
-                thumbBox.innerHTML = game.has_thumb ? `<img src="/games/${game.name}/thumbnail.png">` : '🎮';
+                if (game.has_thumb) {
+                    const img = document.createElement('img');
+                    img.src = '/games/' + encodeURIComponent(game.name) + '/thumbnail.png';
+                    img.alt = (game.name || 'thumbnail') + ' thumb';
+                    thumbBox.appendChild(img);
+                } else {
+                    thumbBox.textContent = '🎮';
+                }
 
                 const title = document.createElement("div");
                 title.style.fontSize = "0.75rem";
@@ -108,23 +128,33 @@ document.addEventListener("DOMContentLoaded", function() {
 
                 link.append(heart, thumbBox, title);
                 gameGrid.appendChild(link);
+                displayedGames.add(game.name);
             });
-        });
+        }).catch(() => {});
     }
 
     function toggleFav(gameName, heartEl) {
+        const headers = { 'Content-Type': 'application/json' };
+        if (CSRF_TOKEN) headers['X-CSRFToken'] = CSRF_TOKEN;
         fetch('/api/toggle-favorite', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ game: gameName })
         }).then(res => res.json()).then(data => {
             const isFav = data.status === "added";
             heartEl.classList.toggle("is-favorite", isFav);
-            heartEl.innerHTML = isFav ? "❤️" : "🤍";
+            heartEl.textContent = isFav ? "❤️" : "🤍";
             
             // If unfavoriting while on the favorites tab, remove the card
-            if (!isFav && favBtn.classList.contains("active")) {
-                heartEl.closest('.game-link').remove();
+            if (isFav) {
+                cachedFavNames = cachedFavNames || [];
+                if (!cachedFavNames.includes(gameName)) cachedFavNames.push(gameName);
+            } else {
+                if (cachedFavNames) cachedFavNames = cachedFavNames.filter(n => n !== gameName);
+                if (!isFav && favBtn && favBtn.classList.contains("active")) {
+                    const card = heartEl.closest('.game-link');
+                    if (card) card.remove();
+                }
             }
         });
     }
@@ -135,14 +165,25 @@ document.addEventListener("DOMContentLoaded", function() {
     loadMoreGames();
 });
 
-const socket = io();
-    const chatMsgs = document.getElementById('chat-messages');
-    const chatInput = document.getElementById('chat-input');
+let socket = null;
+if (typeof io !== 'undefined') {
+    socket = io();
+}
 
+const chatMsgs = document.getElementById('chat-messages');
+const chatInput = document.getElementById('chat-input');
+
+if (chatMsgs && chatInput && socket) {
     function addMessage(data) {
         const div = document.createElement('div');
         div.className = 'msg-item';
-        div.innerHTML = `<div class="msg-user">${data.user} [${data.time}]</div><div>${data.msg}</div>`;
+        const userDiv = document.createElement('div');
+        userDiv.className = 'msg-user';
+        userDiv.textContent = `${data.user} [${data.time}]`;
+        const msgDiv = document.createElement('div');
+        msgDiv.textContent = data.msg;
+        div.appendChild(userDiv);
+        div.appendChild(msgDiv);
         chatMsgs.appendChild(div);
         chatMsgs.scrollTop = chatMsgs.scrollHeight;
     }
@@ -160,38 +201,51 @@ const socket = io();
             chatInput.value = '';
         }
     });
+}
+
 function toggleChat() {
     const container = document.getElementById('chat-container');
     const arrow = document.getElementById('chat-arrow');
-    
-    // Toggle the 'open' class
+    if (!container || !arrow) return;
     container.classList.toggle('open');
-    
-    // Change the arrow based on whether the class is present
-    if (container.classList.contains('open')) {
-        arrow.textContent = '▼'; // Down arrow when open
-    } else {
-        arrow.textContent = '▲'; // Up arrow when closed
-    }
+    arrow.textContent = container.classList.contains('open') ? '▼' : '▲';
 }
-// Only run this if we are on the admin page
-socket.on('admin_user_update', (data) => {
-    const listContainer = document.getElementById('live-user-list');
-    if (!listContainer) return; // Exit if not on admin page
 
-    listContainer.innerHTML = ''; // Clear current list
+if (socket) {
+    socket.on('admin_user_update', (data) => {
+    const pilotList = document.getElementById('pilot-list');
+    if (!pilotList) return;
 
-    data.users.forEach(username => {
-        const li = document.createElement('li');
-        li.style = "padding: 10px; border-bottom: 1px solid var(--border); font-size: 0.8rem;";
-        li.innerHTML = `<span style="color: #4ade80;">●</span> ${username} <br><small style="opacity: 0.5;">Status: ACTIVE</small>`;
-        listContainer.appendChild(li);
+    // 1. Get all the pilot cards as an Array
+    const cards = Array.from(pilotList.querySelectorAll('.pilot-card'));
+
+    // 2. Update the dots (Green for online, Red for offline)
+    cards.forEach(card => {
+        const username = card.getAttribute('data-username');
+        const dot = card.querySelector('.status-dot');
+        
+        if (data.users.includes(username)) {
+            dot.classList.remove('offline');
+            dot.classList.add('online');
+        } else {
+            dot.classList.remove('online');
+            dot.classList.add('offline');
+        }
     });
 
-    if (data.users.length === 0) {
-        listContainer.innerHTML = '<li style="opacity:0.5; font-size:0.8rem;">No pilots currently online.</li>';
-    }
+    // 3. SORT: Move online cards to the top
+    cards.sort((a, b) => {
+        const aOnline = a.querySelector('.status-dot').classList.contains('online');
+        const bOnline = b.querySelector('.status-dot').classList.contains('online');
+        // Sorts true (1) before false (0)
+        return bOnline - aOnline;
+    });
+
+    // 4. Re-append to the DOM (this moves them visually)
+    cards.forEach(card => pilotList.appendChild(card));
 });
+
+}
 
 const themeToggle = document.getElementById('theme-toggle');
 if (localStorage.getItem('vault_theme') === 'light') {
@@ -210,9 +264,11 @@ if (themeToggle) {
 function submitReport(gameName) {
     const report = prompt(`Briefly describe the issue with ${gameName.toUpperCase()}:`);
     if (report && report.trim() !== "") {
+        const headers = { 'Content-Type': 'application/json' };
+        if (CSRF_TOKEN) headers['X-CSRFToken'] = CSRF_TOKEN;
         fetch('/api/report-issue', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ game: gameName, report: report })
         })
         .then(res => res.json())
@@ -233,4 +289,22 @@ function promoteReport(reportId, gameName, originalReport) {
         document.getElementById('p-note').value = customNote;
         document.getElementById('promote-form').submit();
     }
+}
+
+// Handle server-side session denial (another session active)
+if (socket) {
+    socket.on('session_denied', (data) => {
+        try {
+            alert((data && data.reason) ? data.reason : 'Session denied: account active elsewhere.');
+        } catch (e) {}
+        // Redirect to logout to clear client-side session state
+        window.location.href = '/logout';
+    });
+
+    socket.on('force_logout', (data) => {
+        try {
+            alert((data && data.reason) ? data.reason : 'You have been logged out due to another session.');
+        } catch (e) {}
+        window.location.href = '/logout';
+    });
 }

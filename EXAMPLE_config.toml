@@ -1,0 +1,32 @@
+# Example Configuration for Galactic Vault
+# All of these are also configurable in the admin dashboard
+
+# ---- Security ---- #
+admin_user = "pontifex"
+# User with administrator permissions, allows access to the admin dashboard. An array gives permissions to multiple users.
+session_timeout = 5
+# Refers to how long (in minutes) a session stays active for a user
+
+# ---- Server ---- #
+host = "0.0.0.0"
+# Where the server is hosted on the network (127.0.0.1 for localhost, 0.0.0.0 for LAN access)
+port = 8000
+# Port that the server connects on (will require a restart upon changing)
+debug_mode = true
+# Uses Flask's built-in debug mode
+use_https = false
+# Uses HTTPS for greater security through encryption
+
+# ---- Filesystem ---- #
+games_directory = "games"
+# Folder that all games are contained in (script looks for an index.html in each subfolder of the game directory and uses that)
+database = "galactic_vault.db"
+# Refers to the SQLite database that contains all user and site information. Supports subfolder definition (Example: folder/galactic_vault.db)
+
+# ---- Chat ---- #
+max_message_size = 512
+# The maximum message size in characters (Does not apply to admin user)
+max_message_count = 256
+# The maximum amount of messages that will be stored in a single channel
+blocked_words = ["bad", "words", "go", "here"]
+# Automatically filters any of these words out of the chat and replaces them with an asterisk string of the same length

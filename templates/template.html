@@ -7,8 +7,9 @@
     <title>{{ title }} | Galactic Vault</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
 </head>
-{% if session.get('user_id') %}
+{% if session.get('user_id') and view != 'chat' and show_comm_popup %}
 <div id="chat-container">
     <div id="chat-header" onclick="toggleChat()">
         <span style="font-size: 0.7rem; letter-spacing: 0.1em; font-weight: 700;">COMM-LINK</span>
@@ -19,8 +20,6 @@
         <input type="text" id="chat-input" placeholder="Transmit message..." autocomplete="off">
     </div>
 </div>
-
-<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 {% endif %}
 <body class="{% if view == 'login' %}login-view{% endif %}">
     <div class="bg-glow"></div>
@@ -32,6 +31,7 @@
             <a href="/" class="nav-item {% if view == 'menu' %}active{% endif %}">Game Library</a>
             <a href="#" id="nav-recent" class="nav-item">Recently Played</a>
             <a href="#" id="nav-favorites" class="nav-item">Favorites</a>
+            <a href="/chat" class="nav-item {% if view == 'chat' %}active{% endif %}">Communications</a>
             <a href="/settings" class="nav-item {% if view == 'settings' %}active{% endif %}">System Configuration</a>
             {% if session.get('user_id') == 'admin' %}
             <a href="/admin/dashboard" class="nav-item {% if view == 'admin' %}active{% endif %}">
@@ -47,6 +47,33 @@
     {% endif %}
 
     <main class="main-wrapper">
+        {% if view == "chat" %}
+        <div class="chat-dual-layout">
+            <div class="container chat-area">
+                <h1>COMM-LINK</h1>
+                <div id="chat-messages" style="height: 500px;"></div>
+                <div id="chat-input-area">
+                    <input type="text" id="chat-input" placeholder="Transmit message..." autocomplete="off">
+                </div>
+            </div>
+            
+            <div class="container users-area">
+                <h1>ACTIVE PILOTS</h1>
+                <div id="pilot-list">
+                    {% for pilot in pilots %}
+                    <div class="pilot-card" data-username="{{ pilot.username }}">
+                        <div class="pilot-info">
+                            <img src="https://ui-avatars.com/api/?name={{ pilot.username }}&background=random&color=fff&size=32" 
+                                class="pilot-avatar" alt="avatar">
+                            <span class="pilot-name">{{ pilot.username }}</span>
+                        </div>
+                        <span class="status-dot {{ 'online' if pilot.online else 'offline' }}"></span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% else %}
         <div class="container">
             <h1>{{ header }}</h1>
 
@@ -123,12 +150,22 @@
                                 <span class="theme-slider"></span>
                             </label>
                         </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+                            <span style="font-size: 0.95rem;">Show COMM-LINK popup on other pages</span>
+                            <form action="/update-settings" method="POST" style="margin:0;">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <label style="display:flex; align-items:center; gap:10px;">
+                                    <input type="checkbox" name="show_comm_popup" id="comm-popup-toggle" {% if show_comm_popup %}checked{% endif %} onchange="this.form.submit()">
+                                </label>
+                            </form>
+                        </div>
                     </div>
 
                     <div class="container" style="padding: 25px; background: rgba(0,0,0,0.3); backdrop-filter: none; border-radius: 16px; margin-bottom: 20px;">
                         <h3 style="font-size: 0.8rem; color: var(--primary); letter-spacing: 0.2em; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-top: 0; margin-bottom: 20px;">ACCOUNT SECURITY</h3>
                         
                         <form action="/update-credentials" method="POST" style="margin-bottom: 40px;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <h4 style="margin-top: 0; font-size: 0.9rem; margin-bottom: 15px; font-weight: 500;">Change Username</h4>
                             <input type="hidden" name="action" value="username">
                             <input type="text" name="new_username" placeholder="New Username" required style="text-align: left;">
@@ -137,6 +174,7 @@
                         </form>
 
                         <form action="/update-credentials" method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <h4 style="margin-top: 0; font-size: 0.9rem; margin-bottom: 15px; font-weight: 500;">Change Access Code (Password)</h4>
                             <input type="hidden" name="action" value="password">
                             <input type="password" name="current_password" placeholder="Current Password" required style="width: 100%; padding: 14px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--border); border-radius: 12px; color: var(--text); margin-bottom: 20px; text-align: left;">
@@ -167,9 +205,11 @@
                                     </div>
                                     <div style="display: flex; gap: 10px;">
                                         <form action="/admin/action/approve/{{ user }}" method="POST" style="flex: 1;">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <button class="btn-ui" style="padding: 8px; font-size: 0.65rem;">APPROVE</button>
                                         </form>
                                         <form action="/admin/action/deny/{{ user }}" method="POST" style="flex: 1;">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <button class="btn-ui secondary" style="padding: 8px; font-size: 0.65rem; color: #f87171;">DENY</button>
                                         </form>
                                     </div>
@@ -207,6 +247,7 @@
                 <div style="font-size: 0.8rem;">{{ k.note }}</div>
             </div>
             <form action="/admin/known-issue/remove" method="POST" style="margin: 0;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="issue_id" value="{{ k.id }}">
                 <button type="submit" class="btn-ui" style="background:#4ade80; color: black; font-size: 0.6rem; padding: 5px 10px; width: auto; border: none;">RESOLVE</button>
             </form>
@@ -216,6 +257,7 @@
 </div>
 
 <form id="promote-form" action="/admin/promote-report" method="POST" style="display: none;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="report_id" id="p-report-id">
     <input type="hidden" name="game_name" id="p-game-name">
     <input type="hidden" name="note" id="p-note">
@@ -223,7 +265,11 @@
 </div>
             {% endif %}
         </div>
+        {% endif %}
     </main>
+    {% if session.get('user_id') %}
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    {% endif %}
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

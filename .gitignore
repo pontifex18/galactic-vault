@@ -2,3 +2,4 @@ OLD/
 games/
 galactic_vault.db
 .env
+config.toml

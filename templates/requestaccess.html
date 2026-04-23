@@ -144,6 +144,7 @@
     <p>Your request will be sent to the owner of this document. Please provide your details below.</p>
 
     <form class="request-form" action="/submit-request" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="text" name="username" class="input-field" placeholder="Desired Username" required>
         <input type="password" name="password" class="input-field" placeholder="Desired password" required>
         <textarea name="message" class="input-field" placeholder="Add a message (optional)"></textarea>

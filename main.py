@@ -7,36 +7,72 @@ import json
 import random
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, jsonify
-from flask_socketio import SocketIO, emit
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, jsonify, g, abort
+from flask_socketio import SocketIO, emit, disconnect
+from flask_wtf import CSRFProtect
+from flask_wtf.csrf import CSRFError
 from werkzeug.security import generate_password_hash, check_password_hash
+
 
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'default-unsecure-key-for-dev-only')
-PORT = 8000
-GAMES_DIR = "games"
-DB_FILE = "galactic_vault.db"
 
-socketio = SocketIO(app, cors_allowed_origins="*")
+# Secure secret key handling: prefer environment-provided key; fall back to a strong ephemeral key but warn.
+_secret = os.environ.get('FLASK_SECRET_KEY')
+if not _secret:
+    _secret = os.urandom(64).hex()
+    app.logger.warning('FLASK_SECRET_KEY not set; using ephemeral secret. Set FLASK_SECRET_KEY for production.')
+app.secret_key = _secret
+
+# Configurable values (allow overrides via environment)
+PORT = int(os.environ.get('PORT', os.environ.get('VAULT_PORT', '8000')))
+GAMES_DIR = os.environ.get('GAMES_DIR', 'games')
+DB_FILE = os.environ.get('VAULT_DB', 'galactic_vault.db')
+
+# Enable Socket.IO; do not let it manage Flask sessions itself (we manage sessions explicitly)
+socketio = SocketIO(app, cors_allowed_origins="*", manage_session=False)
+
+# CSRF protection for POST/PUT/DELETE routes
+csrf = CSRFProtect(app)
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(e):
+    app.logger.warning('CSRF error: %s', getattr(e, 'description', str(e)))
+    flash('Invalid or missing CSRF token. Please retry the action.', 'error')
+    return redirect(url_for('login'))
 
 # In-memory tracking for active sessions
-active_users = {}
 online_pings = {}
-SESSION_TIMEOUT = timedelta(minutes=5)
+user_sids = {}
 
 # --- DATABASE HELPERS ---
 
 def get_db_connection():
-    """Establishes a connection to the SQLite database."""
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Return a per-request SQLite connection stored on `flask.g`.
+
+    This avoids creating and closing a new connection for every small helper call
+    while keeping the connection scoped to the request lifecycle.
+    """
+    if 'db' not in g:
+        conn = sqlite3.connect(DB_FILE, detect_types=sqlite3.PARSE_DECLTYPES)
+        conn.row_factory = sqlite3.Row
+        g.db = conn
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db_connection(exception):
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
 
 def init_db():
     """Initializes the database schema if it doesn't exist."""
-    conn = get_db_connection()
+    # Use a direct connection here (outside of request context)
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
     # Users: Approved pilots
     conn.execute('''CREATE TABLE IF NOT EXISTS users 
                     (username TEXT PRIMARY KEY, password TEXT)''')
@@ -58,8 +94,65 @@ def init_db():
     # Known Issues: Admin notes shown to users
     conn.execute('''CREATE TABLE IF NOT EXISTS known_issues 
                     (id INTEGER PRIMARY KEY AUTOINCREMENT, game_name TEXT, note TEXT)''')
+    # Per-user settings (key/value)
+    conn.execute('''CREATE TABLE IF NOT EXISTS user_settings
+                    (user_id TEXT, key TEXT, value TEXT, PRIMARY KEY (user_id, key))''')
+    # Track active sessions so we can attempt to enforce single-session logins
+    conn.execute('''CREATE TABLE IF NOT EXISTS active_sessions
+                    (user_id TEXT PRIMARY KEY, sid TEXT, last_seen TIMESTAMP)''')
     conn.commit()
     conn.close()
+
+
+def _get_active_session_sid(username):
+    try:
+        c = sqlite3.connect(DB_FILE)
+        c.row_factory = sqlite3.Row
+        row = c.execute('SELECT sid FROM active_sessions WHERE user_id = ?', (username,)).fetchone()
+        return row['sid'] if row else None
+    finally:
+        c.close()
+
+
+def _set_active_session(username, sid):
+    c = sqlite3.connect(DB_FILE)
+    try:
+        c.execute('INSERT OR REPLACE INTO active_sessions (user_id, sid, last_seen) VALUES (?, ?, ?)',
+                  (username, sid, datetime.now()))
+        c.commit()
+    finally:
+        c.close()
+
+
+def _clear_active_session_by_sid(sid):
+    c = sqlite3.connect(DB_FILE)
+    try:
+        c.execute('DELETE FROM active_sessions WHERE sid = ?', (sid,))
+        c.commit()
+    finally:
+        c.close()
+
+
+def get_user_setting(user_id, key, default=None):
+    conn = get_db_connection()
+    row = conn.execute('SELECT value FROM user_settings WHERE user_id = ? AND key = ?', (user_id, key)).fetchone()
+    return row['value'] if row else default
+
+
+def set_user_setting(user_id, key, value):
+    conn = get_db_connection()
+    conn.execute('INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, ?, ?)',
+                 (user_id, key, value))
+    conn.commit()
+
+
+@app.context_processor
+def inject_user_settings():
+    show_comm_popup = True
+    if session.get('user_id'):
+        val = get_user_setting(session['user_id'], 'show_comm_popup', '1')
+        show_comm_popup = (val == '1' or val is True)
+    return {'show_comm_popup': show_comm_popup}
 
 # --- AUTHENTICATION HELPERS ---
 
@@ -67,7 +160,6 @@ def check_credentials(username, password):
     """Validates hashed credentials against the SQLite database."""
     conn = get_db_connection()
     user = conn.execute('SELECT password FROM users WHERE username = ?', (username,)).fetchone()
-    conn.close()
     if user and check_password_hash(user['password'], password):
         return True
     return False
@@ -77,7 +169,6 @@ def check_credentials(username, password):
 def load_chat():
     conn = get_db_connection()
     rows = conn.execute('SELECT user, msg, time FROM chat ORDER BY id ASC').fetchall()
-    conn.close()
     return [dict(row) for row in rows]
 
 def save_message(msg_data):
@@ -87,7 +178,6 @@ def save_message(msg_data):
     # Keep only last 50 messages
     conn.execute('DELETE FROM chat WHERE id NOT IN (SELECT id FROM chat ORDER BY id DESC LIMIT 50)')
     conn.commit()
-    conn.close()
 
 # --- GAME DATA HELPERS ---
 
@@ -98,7 +188,8 @@ def get_game_config(game_name):
         try:
             with open(config_path, 'r') as f:
                 return {**defaults, **json.load(f)}
-        except:
+        except (IOError, json.JSONDecodeError) as e:
+            app.logger.exception('Error reading config for %s: %s', game_name, e)
             return defaults
     return defaults
 
@@ -114,19 +205,15 @@ def record_play(user_id, game_name):
                     (SELECT id FROM history WHERE user_id = ? ORDER BY last_played DESC LIMIT 12)''', 
                  (user_id, user_id))
     conn.commit()
-    conn.close()
 
 # --- MIDDLEWARE ---
 
 @app.before_request
 def check_session():
-    if 'user_id' in session and 'session_token' in session:
-        user_id = session['user_id']
-        token = session['session_token']
-        if user_id not in active_users or active_users[user_id]['token'] != token:
-            session.clear()
-            return
-        active_users[user_id]['last_seen'] = datetime.now()
+    # Session validity is now maintained without a server-side timeout.
+    # Keep this hook lightweight: just ensure the session user exists.
+    if 'user_id' not in session:
+        return
 
 # --- ROUTES ---
 
@@ -137,8 +224,14 @@ def index():
     
     games_list = []
     if os.path.exists(GAMES_DIR):
-        dirs = [d for d in os.listdir(GAMES_DIR) if os.path.isdir(os.path.join(GAMES_DIR, d))]
+        try:
+            dirs = [d for d in os.listdir(GAMES_DIR) if os.path.isdir(os.path.join(GAMES_DIR, d))]
+        except OSError:
+            dirs = []
         for game in dirs:
+            safe_name = os.path.basename(game)
+            if not safe_name or safe_name != game or safe_name.startswith('.'):
+                continue
             has_thumb = os.path.exists(os.path.join(GAMES_DIR, game, 'thumbnail.png'))
             games_list.append({'name': game, 'has_thumb': has_thumb})
 
@@ -151,16 +244,29 @@ def login():
         password = request.form.get('password', '').strip()
         
         if check_credentials(username, password):
-            now = datetime.now()
-            if username in active_users:
-                if now - active_users[username]['last_seen'] < SESSION_TIMEOUT:
-                    flash("ACCESS DENIED: ACCOUNT IN USE", "error")
-                    return redirect(url_for('login'))
-            
-            token = str(uuid.uuid4())
-            active_users[username] = {'token': token, 'last_seen': now}
+            # Enforce single-session: if another session exists, attempt to notify and disconnect it
+            existing_sid = _get_active_session_sid(username)
+            if existing_sid:
+                try:
+                    socketio.emit('force_logout', {'reason': 'New login from another location.'}, to=existing_sid)
+                    # Attempt to close the previous socket connection
+                    try:
+                        socketio.disconnect(existing_sid)
+                    except Exception:
+                        app.logger.debug('socketio.disconnect failed for sid %s', existing_sid)
+                except Exception:
+                    app.logger.exception('Error while forcing logout for existing session')
+                finally:
+                    # Clean up any in-memory tracking for the old session
+                    online_pings.pop(existing_sid, None)
+                    if user_sids.get(username) == existing_sid:
+                        user_sids.pop(username, None)
+                    _clear_active_session_by_sid(existing_sid)
+
+            # Create the Flask session. Socket.IO connect will register the active sid.
             session['user_id'] = username
-            session['session_token'] = token
+            # Record an active session placeholder without SID; the real SID will be set on socket connect
+            _set_active_session(username, None)
             return redirect(url_for('index'))
         
         flash("ACCESS DENIED: INVALID CREDENTIALS")
@@ -191,16 +297,13 @@ def submit_request():
     except sqlite3.IntegrityError:
         flash("A request for this username already exists.")
     finally:
-        conn.close()
+        pass
 
     return redirect(url_for('login'))
 
 @app.route('/logout')
 def logout():
-    if 'user_id' in session:
-        user_id = session['user_id']
-        if user_id in active_users and active_users[user_id]['token'] == session.get('session_token'):
-            del active_users[user_id]
+    # Clearing the session is enough; Socket.IO disconnects will update presence.
     session.clear()
     return redirect(url_for('login'))
 
@@ -215,7 +318,6 @@ def play(game_name):
     # Fetch known issues for this specific game
     conn = get_db_connection()
     known_issues = conn.execute('SELECT note FROM known_issues WHERE game_name = ?', (game_name,)).fetchall()
-    conn.close()
     
     return render_template('template.html', view="player", title=game_name.upper(), 
                            header="System Online", game_name=game_name,
@@ -227,9 +329,18 @@ def api_games():
     if 'user_id' not in session: return jsonify({"error": "Unauthorized"}), 401
     search_query = request.args.get('q', '').lower()
     games_list = []
-    dirs = [d for d in os.listdir(GAMES_DIR) if os.path.isdir(os.path.join(GAMES_DIR, d))]
+    try:
+        dirs = [d for d in os.listdir(GAMES_DIR) if os.path.isdir(os.path.join(GAMES_DIR, d))]
+    except OSError:
+        return jsonify([])
+
     for game in dirs:
-        if search_query and search_query not in game.lower(): continue
+        # Basic sanitation: use the base name and skip suspicious entries
+        safe_name = os.path.basename(game)
+        if not safe_name or safe_name != game or safe_name.startswith('.'):
+            continue
+        if search_query and search_query not in game.lower():
+            continue
         has_thumb = os.path.exists(os.path.join(GAMES_DIR, game, 'thumbnail.png'))
         games_list.append({'name': game, 'has_thumb': has_thumb})
     if not search_query: random.shuffle(games_list)
@@ -241,7 +352,6 @@ def api_recent():
     conn = get_db_connection()
     rows = conn.execute('SELECT game_name FROM history WHERE user_id = ? ORDER BY last_played DESC', 
                         (session['user_id'],)).fetchall()
-    conn.close()
     
     recent_games = []
     for row in rows:
@@ -258,7 +368,6 @@ def api_favorites():
     if 'user_id' not in session: return jsonify([])
     conn = get_db_connection()
     rows = conn.execute('SELECT game_name FROM favorites WHERE user_id = ?', (session['user_id'],)).fetchall()
-    conn.close()
     
     fav_games = []
     for row in rows:
@@ -292,7 +401,6 @@ def toggle_favorite():
         status = "added"
         
     conn.commit()
-    conn.close()
     return jsonify({"status": status})
 
 # --- ADMIN ROUTES ---
@@ -309,13 +417,15 @@ def admin_dashboard():
     # Fetch user reports and active known issues
     user_reports = conn.execute('SELECT * FROM issues ORDER BY timestamp DESC').fetchall()
     current_known = conn.execute('SELECT * FROM known_issues').fetchall()
-    conn.close()
     
     requests_dict = {row['username']: dict(row) for row in pending_requests}
 
+    # Build current online pilots list from socket pings
+    current_online = list(set(data['user'] for data in online_pings.values()))
+
     return render_template('template.html', view="admin", title="Admin Terminal", 
                            header="System Control", pending_requests=requests_dict,
-                           active_pilots=active_users, user_reports=user_reports, 
+                           active_pilots=current_online, user_reports=user_reports, 
                            current_known=current_known)
 
 @app.route('/admin/action/<action>/<username>', methods=['POST'])
@@ -336,32 +446,65 @@ def admin_action(action, username):
             conn.execute('DELETE FROM requests WHERE username = ?', (username,))
             flash(f"Request from {username} deleted.", "error")
         conn.commit()
-    conn.close()
+    
     return redirect(url_for('admin_dashboard'))
 
 # --- SOCKETS ---
 
 def broadcast_admin_update():
-    current_online = list(set([data['user'] for data in online_pings.values()]))
+    # Extract unique usernames from the online_pings dictionary
+    # (Since one user might have multiple tabs open/multiple SIDs)
+    current_online = list(set(data['user'] for data in online_pings.values()))
+    
+    # Broadcast this list to EVERYONE connected
     socketio.emit('admin_user_update', {'users': current_online})
 
 @socketio.on('connect')
 def handle_connect():
     user_id = session.get('user_id')
-    # Using getattr to avoid static analysis errors for 'sid'
     sid = getattr(request, 'sid', None)
-    
+
     if user_id and sid:
+        # Prefer in-memory mapping, fall back to DB persisted SID
+        existing_sid = user_sids.get(user_id) or _get_active_session_sid(user_id)
+
+        # If another SID exists, attempt to notify and disconnect it so the new session becomes active
+        if existing_sid and existing_sid != sid:
+            try:
+                socketio.emit('force_logout', {'reason': 'Your session was terminated due to a new login.'}, to=existing_sid)
+                try:
+                    socketio.disconnect(existing_sid)
+                except Exception:
+                    app.logger.debug('Failed to socketio.disconnect sid %s', existing_sid)
+            except Exception:
+                app.logger.exception('Error while forcing logout for sid %s', existing_sid)
+
+            # Clean up previous mappings
+            online_pings.pop(existing_sid, None)
+            if user_sids.get(user_id) == existing_sid:
+                user_sids.pop(user_id, None)
+            _clear_active_session_by_sid(existing_sid)
+
+        # Register this socket as the active session for the user
+        user_sids[user_id] = sid
         online_pings[sid] = {'user': user_id, 'seen': datetime.now()}
-    
+        _set_active_session(user_id, sid)
+
+    # Load history and update UI
     emit('chat_history', load_chat())
     broadcast_admin_update()
 
 @socketio.on('disconnect')
 def handle_disconnect():
     sid = getattr(request, 'sid', None)
-    if sid in online_pings: 
+    if sid in online_pings:
+        user = online_pings[sid]['user']
         del online_pings[sid]
+        # If this sid was the registered user's active sid, remove it
+        if user_sids.get(user) == sid:
+            user_sids.pop(user, None)
+        # Clear persisted active session for this SID
+        _clear_active_session_by_sid(sid)
     broadcast_admin_update()
 
 @socketio.on('message')
@@ -369,12 +512,18 @@ def handle_message(data):
     if not data or not data.get('msg'):
         return
     user_id = session.get('user_id', 'Unknown Pilot')
-    msg_data = {'user': user_id, 'msg': data['msg'], 'time': datetime.now().strftime("%H:%M")}
+    # Enforce a reasonable maximum length to reduce abuse and stored XSS surface
+    raw_msg = str(data.get('msg', ''))
+    safe_msg = raw_msg[:512]
+    msg_data = {'user': user_id, 'msg': safe_msg, 'time': datetime.now().strftime("%H:%M")}
     save_message(msg_data)
     emit('message', msg_data, broadcast=True)
 
 @app.route('/games/<path:filename>')
 def serve_game(filename):
+    # Basic path validation to avoid directory traversal
+    if '..' in filename or filename.startswith('/') or '\x00' in filename:
+        abort(400)
     return send_from_directory(GAMES_DIR, filename)
 
 @app.route('/settings')
@@ -382,6 +531,16 @@ def settings():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     return render_template('template.html', view="settings", title="Settings", header="System Configuration")
+
+
+@app.route('/update-settings', methods=['POST'])
+def update_settings():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    show_comm = request.form.get('show_comm_popup')
+    set_user_setting(session['user_id'], 'show_comm_popup', '1' if show_comm == 'on' else '0')
+    flash("Settings updated.", "success")
+    return redirect(url_for('settings'))
 
 @app.route('/update-credentials', methods=['POST'])
 def update_credentials():
@@ -410,8 +569,7 @@ def update_credentials():
                 conn.execute('UPDATE favorites SET user_id = ? WHERE user_id = ?', (new_username, user_id))
                 conn.execute('UPDATE history SET user_id = ? WHERE user_id = ?', (new_username, user_id))
                 
-                # Update session and active tracking
-                active_users[new_username] = active_users.pop(user_id)
+                # Update session (presence is handled via Socket.IO connections)
                 session['user_id'] = new_username
                 flash("USERNAME UPDATED SUCCESSFULLY")
 
@@ -425,7 +583,7 @@ def update_credentials():
     except sqlite3.IntegrityError:
         flash("ERROR: USERNAME ALREADY IN USE", "error")
     finally:
-        conn.close()
+        pass
 
     return redirect(url_for('settings'))
 
@@ -445,7 +603,7 @@ def report_issue():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
-        conn.close()
+        pass
 
 @app.route('/admin/promote-report', methods=['POST'])
 def promote_report():
@@ -470,7 +628,7 @@ def promote_report():
     except Exception as e:
         flash(f"ERROR: {str(e)}", "error")
     finally:
-        conn.close()
+        pass
     
     return redirect(url_for('admin_dashboard'))
 
@@ -500,15 +658,41 @@ def admin_known_issue(action):
     except Exception as e:
         flash(f"ERROR: {str(e)}", "error")
     finally:
-        conn.close()
+        pass
     return redirect(url_for('admin_dashboard'))
+
+@app.route('/chat')
+def chat():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    # Fetch all registered users
+    all_users = conn.execute('SELECT username FROM users').fetchall()
+    
+    pilots = []
+    # Build a set of currently online usernames from socket pings
+    current_online = set(data['user'] for data in online_pings.values())
+    for u in all_users:
+        uname = u['username']
+        is_online = uname in current_online
+        pilots.append({
+            'username': uname,
+            'online': is_online
+        })
+    
+    # Sort: Online (True/1) comes before Offline (False/0)
+    pilots.sort(key=lambda x: x['online'], reverse=True)
+    
+    return render_template('template.html', view="chat", title="Chat", 
+                           header="Communications", pilots=pilots)
 
 if __name__ == '__main__':
     init_db() # Create the DB and tables on launch
     
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.connect(('10.255.255.255', 1))
+        s.connect(('10.255.255.255', 1)) # Hack that gets IP adress
         IP = s.getsockname()[0]
     except Exception:
         IP = '127.0.0.1'
@@ -517,3 +701,4 @@ if __name__ == '__main__':
 
     print(f"\n🚀 SERVER STARTING\n🏠 Local Access: http://127.0.0.1:{PORT}\n🌐 LAN Access:   http://{IP}:{PORT}\n")
     socketio.run(app, host='0.0.0.0', port=PORT, debug=True)
+    
