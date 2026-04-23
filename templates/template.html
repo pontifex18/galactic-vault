@@ -152,10 +152,16 @@
                         </div>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
                             <span style="font-size: 0.95rem;">Show COMM-LINK popup on other pages</span>
-                            <form action="/update-settings" method="POST" style="margin:0;">
-                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <label style="display:flex; align-items:center; gap:10px;">
-                                    <input type="checkbox" name="show_comm_popup" id="comm-popup-toggle" {% if show_comm_popup %}checked{% endif %} onchange="this.form.submit()">
+                            <form action="/update-settings" method="POST" style="margin:0;" id="comm-form">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                
+                                <label class="theme-switch">
+                                    <input type="checkbox" 
+                                        name="show_comm_popup" 
+                                        id="comm-popup-toggle" 
+                                        {% if show_comm_popup %}checked{% endif %} 
+                                        onchange="this.form.submit()">
+                                    <span class="theme-slider"></span>
                                 </label>
                             </form>
                         </div>

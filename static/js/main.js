@@ -1,271 +1,189 @@
-// Read CSRF token injected by server into a meta tag (available globally)
+/* ==========================================================================
+   1. GLOBAL CONFIGURATION & STATE
+   ========================================================================== */
+
+// Read CSRF token injected by server into a meta tag
 const CSRF_TOKEN = (() => {
     const m = document.querySelector('meta[name="csrf-token"]');
     return m ? m.getAttribute('content') : null;
 })();
 
-document.addEventListener("DOMContentLoaded", function() {
-    const gameGrid = document.getElementById("game-grid");
-    const searchInput = document.getElementById("game-search");
-    const recentBtn = document.getElementById("nav-recent");
-    const favBtn = document.getElementById("nav-favorites");
+// Global state container for the application
+const AppState = {
+    isLoading: false,
+    isSearching: false,
+    displayedGames: new Set(),
+    cachedFavNames: null
+};
 
-    let isLoading = false;
-    let isSearching = false; 
-    const displayedGames = new Set();
-    let cachedFavNames = null;
+// Global Socket reference
+let socket = (typeof io !== 'undefined') ? io() : null;
 
+/* ==========================================================================
+   2. DOM SELECTOR CACHE
+   ========================================================================== */
 
-    // --- 1. UTILITY: CLEAR AND ACTIVATE ---
-    function setActiveTab(btn) {
-        document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-        btn.classList.add('active');
-        if (gameGrid) {
-            gameGrid.innerHTML = "";
-            displayedGames.clear();
-        }
+const UI = {
+    gameGrid: document.getElementById("game-grid"),
+    searchInput: document.getElementById("game-search"),
+    recentBtn: document.getElementById("nav-recent"),
+    favBtn: document.getElementById("nav-favorites"),
+    chatMsgs: document.getElementById('chat-messages'),
+    chatInput: document.getElementById('chat-input'),
+    chatContainer: document.getElementById('chat-container'),
+    chatArrow: document.getElementById('chat-arrow'),
+    pilotList: document.getElementById('pilot-list'),
+    themeToggle: document.getElementById('theme-toggle')
+};
+
+/* ==========================================================================
+   3. CORE UI LOGIC
+   ========================================================================== */
+
+function setActiveTab(btn) {
+    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+    btn.classList.add('active');
+    if (UI.gameGrid) {
+        UI.gameGrid.innerHTML = "";
+        AppState.displayedGames.clear();
     }
-
-    // --- 2. SEARCH LOGIC ---
-    if (searchInput) {
-        searchInput.addEventListener("input", (e) => {
-            const query = e.target.value.trim();
-            isSearching = query.length > 0;
-            if (isSearching) {
-                fetchGames(query);
-            } else {
-                if (gameGrid) gameGrid.innerHTML = ""; 
-                loadMoreGames();
-            }
-        });
-    }
-
-    // --- 3. NAVIGATION LISTENERS ---
-    if (recentBtn) {
-        recentBtn.addEventListener("click", (e) => {
-            e.preventDefault();
-            setActiveTab(recentBtn);
-            isSearching = true; 
-            fetch('/api/recent')
-                .then(res => res.json())
-                .then(games => {
-                    if (games.length === 0) {
-                        gameGrid.innerHTML = "<p style='grid-column: 1/-1; text-align: center; opacity: 0.5;'>No history found.</p>";
-                    } else {
-                        renderGames(games);
-                    }
-                });
-        });
-    }
-
-    if (favBtn) {
-        favBtn.addEventListener("click", (e) => {
-            e.preventDefault();
-            setActiveTab(favBtn);
-            isSearching = true; 
-            fetch('/api/favorites')
-                .then(res => res.json())
-                .then(games => {
-                    if (games.length === 0) {
-                        gameGrid.innerHTML = "<p style='grid-column: 1/-1; text-align: center; opacity: 0.5;'>No favorites yet.</p>";
-                    } else {
-                        renderGames(games);
-                    }
-                });
-        });
-    }
-
-    // --- 4. DATA FETCHING & RENDERING ---
-    function fetchGames(query = "") {
-        if (isLoading || !gameGrid) return;
-        isLoading = true;
-        fetch(`/api/games?q=${encodeURIComponent(query)}`)
-            .then(response => response.json())
-            .then(games => {
-                if (isSearching) gameGrid.innerHTML = "";
-                renderGames(games);
-                isLoading = false;
-            })
-            .catch(() => { isLoading = false; });
-    }
-
-    function renderGames(games) {
-        if (!gameGrid) return;
-        // Ensure favorites are fetched once and cached per view
-        const ensureFavs = cachedFavNames ? Promise.resolve(cachedFavNames) : fetch('/api/favorites').then(r => r.json()).then(f => f.map(x => x.name));
-        ensureFavs.then(favNames => {
-            cachedFavNames = favNames;
-            games.forEach(game => {
-                if (displayedGames.has(game.name)) return;
-
-                const link = document.createElement("a");
-                link.className = "game-link";
-                link.setAttribute('href', "/play/" + encodeURIComponent(game.name));
-                link.dataset.game = game.name;
-
-                const heart = document.createElement("span");
-                heart.className = "fav-heart" + (favNames.includes(game.name) ? " is-favorite" : "");
-                heart.textContent = favNames.includes(game.name) ? "❤️" : "🤍";
-                heart.onclick = (e) => {
-                    e.preventDefault();
-                    toggleFav(game.name, heart);
-                };
-
-                const thumbBox = document.createElement("div");
-                thumbBox.className = "thumb-box";
-                if (game.has_thumb) {
-                    const img = document.createElement('img');
-                    img.src = '/games/' + encodeURIComponent(game.name) + '/thumbnail.png';
-                    img.alt = (game.name || 'thumbnail') + ' thumb';
-                    thumbBox.appendChild(img);
-                } else {
-                    thumbBox.textContent = '🎮';
-                }
-
-                const title = document.createElement("div");
-                title.style.fontSize = "0.75rem";
-                title.textContent = game.name.toUpperCase();
-
-                link.append(heart, thumbBox, title);
-                gameGrid.appendChild(link);
-                displayedGames.add(game.name);
-            });
-        }).catch(() => {});
-    }
-
-    function toggleFav(gameName, heartEl) {
-        const headers = { 'Content-Type': 'application/json' };
-        if (CSRF_TOKEN) headers['X-CSRFToken'] = CSRF_TOKEN;
-        fetch('/api/toggle-favorite', {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ game: gameName })
-        }).then(res => res.json()).then(data => {
-            const isFav = data.status === "added";
-            heartEl.classList.toggle("is-favorite", isFav);
-            heartEl.textContent = isFav ? "❤️" : "🤍";
-            
-            // If unfavoriting while on the favorites tab, remove the card
-            if (isFav) {
-                cachedFavNames = cachedFavNames || [];
-                if (!cachedFavNames.includes(gameName)) cachedFavNames.push(gameName);
-            } else {
-                if (cachedFavNames) cachedFavNames = cachedFavNames.filter(n => n !== gameName);
-                if (!isFav && favBtn && favBtn.classList.contains("active")) {
-                    const card = heartEl.closest('.game-link');
-                    if (card) card.remove();
-                }
-            }
-        });
-    }
-
-    function loadMoreGames() { if (gameGrid) fetchGames(""); }
-
-    // INITIAL LOAD
-    loadMoreGames();
-});
-
-let socket = null;
-if (typeof io !== 'undefined') {
-    socket = io();
 }
 
-const chatMsgs = document.getElementById('chat-messages');
-const chatInput = document.getElementById('chat-input');
+function renderGames(games) {
+    if (!UI.gameGrid) return;
 
-if (chatMsgs && chatInput && socket) {
-    function addMessage(data) {
-        const div = document.createElement('div');
-        div.className = 'msg-item';
-        const userDiv = document.createElement('div');
-        userDiv.className = 'msg-user';
-        userDiv.textContent = `${data.user} [${data.time}]`;
-        const msgDiv = document.createElement('div');
-        msgDiv.textContent = data.msg;
-        div.appendChild(userDiv);
-        div.appendChild(msgDiv);
-        chatMsgs.appendChild(div);
-        chatMsgs.scrollTop = chatMsgs.scrollHeight;
-    }
+    // Ensure favorites are fetched once and cached per view
+    const ensureFavs = AppState.cachedFavNames 
+        ? Promise.resolve(AppState.cachedFavNames) 
+        : fetch('/api/favorites').then(r => r.json()).then(f => f.map(x => x.name));
 
-    socket.on('message', (data) => addMessage(data));
+    ensureFavs.then(favNames => {
+        AppState.cachedFavNames = favNames;
+        
+        games.forEach(game => {
+            if (AppState.displayedGames.has(game.name)) return;
 
-    socket.on('chat_history', (history) => {
-        chatMsgs.innerHTML = '';
-        history.forEach(msg => addMessage(msg));
-    });
+            const link = document.createElement("a");
+            link.className = "game-link";
+            link.setAttribute('href', "/play/" + encodeURIComponent(game.name));
+            link.dataset.game = game.name;
 
-    chatInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter' && chatInput.value.trim()) {
-            socket.emit('message', { msg: chatInput.value });
-            chatInput.value = '';
+            const heart = document.createElement("span");
+            heart.className = "fav-heart" + (favNames.includes(game.name) ? " is-favorite" : "");
+            heart.textContent = favNames.includes(game.name) ? "❤️" : "🤍";
+            heart.onclick = (e) => {
+                e.preventDefault();
+                toggleFav(game.name, heart);
+            };
+
+            const thumbBox = document.createElement("div");
+            thumbBox.className = "thumb-box";
+            if (game.has_thumb) {
+                const img = document.createElement('img');
+                img.src = '/games/' + encodeURIComponent(game.name) + '/thumbnail.png';
+                img.alt = (game.name || 'thumbnail') + ' thumb';
+                thumbBox.appendChild(img);
+            } else {
+                thumbBox.textContent = '🎮';
+            }
+
+            const title = document.createElement("div");
+            title.style.fontSize = "0.75rem";
+            title.textContent = game.name.toUpperCase();
+
+            link.append(heart, thumbBox, title);
+            UI.gameGrid.appendChild(link);
+            AppState.displayedGames.add(game.name);
+        });
+    }).catch(() => {});
+}
+
+/* ==========================================================================
+   4. API & DATA FETCHING
+   ========================================================================== */
+
+function fetchGames(query = "") {
+    if (AppState.isLoading || !UI.gameGrid) return;
+    AppState.isLoading = true;
+    
+    fetch(`/api/games?q=${encodeURIComponent(query)}`)
+        .then(response => response.json())
+        .then(games => {
+            if (AppState.isSearching) UI.gameGrid.innerHTML = "";
+            renderGames(games);
+            AppState.isLoading = false;
+        })
+        .catch(() => { AppState.isLoading = false; });
+}
+
+function toggleFav(gameName, heartEl) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (CSRF_TOKEN) headers['X-CSRFToken'] = CSRF_TOKEN;
+
+    fetch('/api/toggle-favorite', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ game: gameName })
+    })
+    .then(res => res.json())
+    .then(data => {
+        const isFav = data.status === "added";
+        heartEl.classList.toggle("is-favorite", isFav);
+        heartEl.textContent = isFav ? "❤️" : "🤍";
+        
+        if (isFav) {
+            AppState.cachedFavNames = AppState.cachedFavNames || [];
+            if (!AppState.cachedFavNames.includes(gameName)) AppState.cachedFavNames.push(gameName);
+        } else {
+            if (AppState.cachedFavNames) AppState.cachedFavNames = AppState.cachedFavNames.filter(n => n !== gameName);
+            if (!isFav && UI.favBtn && UI.favBtn.classList.contains("active")) {
+                const card = heartEl.closest('.game-link');
+                if (card) card.remove();
+            }
         }
     });
+}
+
+function loadMoreGames() { 
+    if (UI.gameGrid) fetchGames(""); 
+}
+
+/* ==========================================================================
+   5. FEATURE MODULES (Chat, Theme, Reporting)
+   ========================================================================== */
+
+// Chat Functionality
+function addMessage(data) {
+    if (!UI.chatMsgs) return;
+    const div = document.createElement('div');
+    div.className = 'msg-item';
+    
+    const userDiv = document.createElement('div');
+    userDiv.className = 'msg-user';
+    userDiv.textContent = `${data.user} [${data.time}]`;
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.textContent = data.msg;
+    
+    div.appendChild(userDiv);
+    div.appendChild(msgDiv);
+    UI.chatMsgs.appendChild(div);
+    UI.chatMsgs.scrollTop = UI.chatMsgs.scrollHeight;
 }
 
 function toggleChat() {
-    const container = document.getElementById('chat-container');
-    const arrow = document.getElementById('chat-arrow');
-    if (!container || !arrow) return;
-    container.classList.toggle('open');
-    arrow.textContent = container.classList.contains('open') ? '▼' : '▲';
+    if (!UI.chatContainer || !UI.chatArrow) return;
+    UI.chatContainer.classList.toggle('open');
+    UI.chatArrow.textContent = UI.chatContainer.classList.contains('open') ? '▼' : '▲';
 }
 
-if (socket) {
-    socket.on('admin_user_update', (data) => {
-    const pilotList = document.getElementById('pilot-list');
-    if (!pilotList) return;
-
-    // 1. Get all the pilot cards as an Array
-    const cards = Array.from(pilotList.querySelectorAll('.pilot-card'));
-
-    // 2. Update the dots (Green for online, Red for offline)
-    cards.forEach(card => {
-        const username = card.getAttribute('data-username');
-        const dot = card.querySelector('.status-dot');
-        
-        if (data.users.includes(username)) {
-            dot.classList.remove('offline');
-            dot.classList.add('online');
-        } else {
-            dot.classList.remove('online');
-            dot.classList.add('offline');
-        }
-    });
-
-    // 3. SORT: Move online cards to the top
-    cards.sort((a, b) => {
-        const aOnline = a.querySelector('.status-dot').classList.contains('online');
-        const bOnline = b.querySelector('.status-dot').classList.contains('online');
-        // Sorts true (1) before false (0)
-        return bOnline - aOnline;
-    });
-
-    // 4. Re-append to the DOM (this moves them visually)
-    cards.forEach(card => pilotList.appendChild(card));
-});
-
-}
-
-const themeToggle = document.getElementById('theme-toggle');
-if (localStorage.getItem('vault_theme') === 'light') {
-    document.body.classList.add('light-mode');
-    if (themeToggle) themeToggle.checked = true;
-}
-
-if (themeToggle) {
-    themeToggle.addEventListener('change', () => {
-        const isLight = themeToggle.checked;
-        document.body.classList.toggle('light-mode', isLight);
-        localStorage.setItem('vault_theme', isLight ? 'light' : 'dark');
-    });
-}
-// Function to handle the Report Issue prompt
+// Issue Reporting
 function submitReport(gameName) {
     const report = prompt(`Briefly describe the issue with ${gameName.toUpperCase()}:`);
     if (report && report.trim() !== "") {
         const headers = { 'Content-Type': 'application/json' };
         if (CSRF_TOKEN) headers['X-CSRFToken'] = CSRF_TOKEN;
+        
         fetch('/api/report-issue', {
             method: 'POST',
             headers,
@@ -273,9 +191,7 @@ function submitReport(gameName) {
         })
         .then(res => res.json())
         .then(data => {
-            if (data.status === "success") {
-                alert("Transmission received. Engineers have been notified.");
-            }
+            if (data.status === "success") alert("Transmission received. Engineers have been notified.");
         })
         .catch(err => alert("Transmission failed. Check connection."));
     }
@@ -291,13 +207,131 @@ function promoteReport(reportId, gameName, originalReport) {
     }
 }
 
-// Handle server-side session denial (another session active)
+/* ==========================================================================
+   6. EVENT INITIALIZATION
+   ========================================================================== */
+
+document.addEventListener("DOMContentLoaded", function() {
+    
+    // --- Search Input ---
+    if (UI.searchInput) {
+        UI.searchInput.addEventListener("input", (e) => {
+            const query = e.target.value.trim();
+            AppState.isSearching = query.length > 0;
+            if (AppState.isSearching) {
+                fetchGames(query);
+            } else {
+                if (UI.gameGrid) UI.gameGrid.innerHTML = ""; 
+                loadMoreGames();
+            }
+        });
+    }
+
+    // --- Recent Tab ---
+    if (UI.recentBtn) {
+        UI.recentBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            setActiveTab(UI.recentBtn);
+            AppState.isSearching = true; 
+            fetch('/api/recent')
+                .then(res => res.json())
+                .then(games => {
+                    if (games.length === 0) {
+                        UI.gameGrid.innerHTML = "<p style='grid-column: 1/-1; text-align: center; opacity: 0.5;'>No history found.</p>";
+                    } else {
+                        renderGames(games);
+                    }
+                });
+        });
+    }
+
+    // --- Favorites Tab ---
+    if (UI.favBtn) {
+        UI.favBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            setActiveTab(UI.favBtn);
+            AppState.isSearching = true; 
+            fetch('/api/favorites')
+                .then(res => res.json())
+                .then(games => {
+                    if (games.length === 0) {
+                        UI.gameGrid.innerHTML = "<p style='grid-column: 1/-1; text-align: center; opacity: 0.5;'>No favorites yet.</p>";
+                    } else {
+                        renderGames(games);
+                    }
+                });
+        });
+    }
+
+    // --- Theme Management ---
+    if (localStorage.getItem('vault_theme') === 'light') {
+        document.body.classList.add('light-mode');
+        if (UI.themeToggle) UI.themeToggle.checked = true;
+    }
+
+    if (UI.themeToggle) {
+        UI.themeToggle.addEventListener('change', () => {
+            const isLight = UI.themeToggle.checked;
+            document.body.classList.toggle('light-mode', isLight);
+            localStorage.setItem('vault_theme', isLight ? 'light' : 'dark');
+        });
+    }
+
+    // Initial Data Load
+    loadMoreGames();
+});
+
+/* ==========================================================================
+   7. SOCKET.IO LISTENERS
+   ========================================================================== */
+
 if (socket) {
+    // Chat logic
+    if (UI.chatMsgs && UI.chatInput) {
+        socket.on('message', (data) => addMessage(data));
+
+        socket.on('chat_history', (history) => {
+            UI.chatMsgs.innerHTML = '';
+            history.forEach(msg => addMessage(msg));
+        });
+
+        UI.chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && UI.chatInput.value.trim()) {
+                socket.emit('message', { msg: UI.chatInput.value });
+                UI.chatInput.value = '';
+            }
+        });
+    }
+
+    // Pilot List Admin Updates
+    socket.on('admin_user_update', (data) => {
+        if (!UI.pilotList) return;
+        const cards = Array.from(UI.pilotList.querySelectorAll('.pilot-card'));
+
+        cards.forEach(card => {
+            const username = card.getAttribute('data-username');
+            const dot = card.querySelector('.status-dot');
+            const isOnline = data.users.includes(username);
+            
+            dot.classList.toggle('online', isOnline);
+            dot.classList.toggle('offline', !isOnline);
+        });
+
+        // SORT: Move online cards to the top
+        cards.sort((a, b) => {
+            const aOnline = a.querySelector('.status-dot').classList.contains('online');
+            const bOnline = b.querySelector('.status-dot').classList.contains('online');
+            return bOnline - aOnline;
+        });
+
+        cards.forEach(card => UI.pilotList.appendChild(card));
+    });
+
+    // Session Management
     socket.on('session_denied', (data) => {
         try {
             alert((data && data.reason) ? data.reason : 'Session denied: account active elsewhere.');
         } catch (e) {}
-        // Redirect to logout to clear client-side session state
         window.location.href = '/logout';
     });
 
