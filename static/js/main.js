@@ -342,3 +342,13 @@ if (socket) {
         window.location.href = '/logout';
     });
 }
+setInterval(function() {
+    fetch('/api/heartbeat')
+        .then(response => {
+            if (response.status === 401) {
+                // If the session actually expired, kick them to login
+                window.location.href = '/login';
+            }
+        })
+        .catch(err => console.log('Heartbeat failed:', err));
+}, 60000); // 60,000ms = 1 minute

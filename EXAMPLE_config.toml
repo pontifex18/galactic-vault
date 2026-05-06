@@ -5,7 +5,7 @@
 admin_user = "pontifex"
 # User with administrator permissions, allows access to the admin dashboard. An array gives permissions to multiple users.
 session_timeout = 5
-# Refers to how long (in minutes) a session stays active for a user
+# Refers to how long (in minutes) a session stays active for a user after logout
 
 # ---- Server ---- #
 host = "0.0.0.0"

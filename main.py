@@ -5,6 +5,7 @@ import html
 import sqlite3
 import json
 import random
+import toml
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, jsonify, g, abort
@@ -30,10 +31,22 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=timedelta(hours=2) # Auto-logout after 2 hours
 )
 
-# Configurable values (allow overrides via environment)
-PORT = int(os.environ.get('PORT', os.environ.get('VAULT_PORT', '8000')))
-GAMES_DIR = os.environ.get('GAMES_DIR', 'games')
-DB_FILE = os.environ.get('VAULT_DB', 'galactic_vault.db')
+# Load config.toml
+try:
+    with open('config.toml', 'r') as f:
+        config_data = toml.load(f)
+except Exception as e:
+    print(f"Error loading config.toml: {e}")
+    config_data = {}
+
+# Configurable values (Prioritize TOML, then Environment, then Defaults)
+PORT = int(config_data.get('port', os.environ.get('PORT', 8000)))
+GAMES_DIR = config_data.get('games_directory', os.environ.get('GAMES_DIR', 'games'))
+DB_FILE = config_data.get('database', os.environ.get('VAULT_DB', 'galactic_vault.db'))
+ADMIN_USER = config_data.get('admin_user', 'admin') # From config.toml
+
+# Update App Config from TOML
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=config_data.get('session_timeout', 120))
 
 # Enable Socket.IO; do not let it manage Flask sessions itself (we manage sessions explicitly)
 socketio = SocketIO(app, cors_allowed_origins="*", manage_session=False)
@@ -180,8 +193,10 @@ def save_message(msg_data):
     conn = get_db_connection()
     conn.execute('INSERT INTO chat (user, msg, time) VALUES (?, ?, ?)',
                  (msg_data['user'], msg_data['msg'], msg_data['time']))
-    # Keep only last 50 messages
-    conn.execute('DELETE FROM chat WHERE id NOT IN (SELECT id FROM chat ORDER BY id DESC LIMIT 50)')
+    
+    # Respect max_message_count from config
+    max_count = config_data.get('max_message_count', 50)
+    conn.execute(f'DELETE FROM chat WHERE id NOT IN (SELECT id FROM chat ORDER BY id DESC LIMIT {max_count})')
     conn.commit()
 
 # --- GAME DATA HELPERS ---
@@ -276,6 +291,7 @@ def login():
 
             # Create the Flask session. Socket.IO connect will register the active sid.
             session['user_id'] = username
+            session.permanent = True
             # Record an active session placeholder without SID; the real SID will be set on socket connect
             _set_active_session(username, None)
             return redirect(url_for('index'))
@@ -419,7 +435,11 @@ def toggle_favorite():
 
 @app.route('/admin/dashboard')
 def admin_dashboard():
-    if session.get('user_id') != 'admin':
+    # Use the admin_user defined in config.toml
+    admin_config = config_data.get('admin_user', 'admin')
+    allowed_admins = [admin_config] if isinstance(admin_config, str) else admin_config
+
+    if session.get('user_id') not in allowed_admins:
         flash("UNAUTHORIZED ACCESS DETECTED", "error")
         return redirect(url_for('index'))
     
@@ -442,7 +462,10 @@ def admin_dashboard():
 
 @app.route('/admin/action/<action>/<username>', methods=['POST'])
 def admin_action(action, username):
-    if session.get('user_id') != 'admin':
+    # Use the admin_user defined in config.toml
+    admin_config = config_data.get('admin_user', 'admin')
+    allowed_admins = [admin_config] if isinstance(admin_config, str) else admin_config
+    if session.get('user_id') not in allowed_admins:
         return jsonify({"error": "Unauthorized"}), 403
 
     conn = get_db_connection()
@@ -524,10 +547,15 @@ def handle_message(data):
     if not data or not data.get('msg'):
         return
     user_id = session.get('user_id', 'Unknown Pilot')
-    # Enforce a reasonable maximum length to reduce abuse and stored XSS surface
+    
+    # Determine max length based on user type
+    admin_config = config_data.get('admin_user', 'admin')
+    allowed_admins = [admin_config] if isinstance(admin_config, str) else admin_config
+    
+    limit = 5000 if user_id in allowed_admins else config_data.get('max_message_size', 512)
+    
     raw_msg = str(data.get('msg', ''))
-    # Clean the message and limit length
-    safe_msg = html.escape(raw_msg[:500])
+    safe_msg = html.escape(raw_msg[:limit])
     msg_data = {'user': user_id, 'msg': safe_msg, 'time': datetime.now().strftime("%H:%M")}
     save_message(msg_data)
     emit('message', msg_data, broadcast=True)
@@ -621,7 +649,11 @@ def report_issue():
 
 @app.route('/admin/promote-report', methods=['POST'])
 def promote_report():
-    if session.get('user_id') != 'admin': return redirect(url_for('index'))
+    # Use the admin_user defined in config.toml
+    admin_config = config_data.get('admin_user', 'admin')
+    allowed_admins = [admin_config] if isinstance(admin_config, str) else admin_config
+
+    if session.get('user_id') not in allowed_admins: return redirect(url_for('index'))
     
     report_id = request.form.get('report_id')
     game_name = request.form.get('game_name')
@@ -648,7 +680,11 @@ def promote_report():
 
 @app.route('/admin/known-issue/<action>', methods=['POST'])
 def admin_known_issue(action):
-    if session.get('user_id') != 'admin': return redirect(url_for('index'))
+    # Use the admin_user defined in config.toml
+    admin_config = config_data.get('admin_user', 'admin')
+    allowed_admins = [admin_config] if isinstance(admin_config, str) else admin_config
+
+    if session.get('user_id') not in allowed_admins: return redirect(url_for('index'))
     
     conn = get_db_connection()
     try:
@@ -701,6 +737,13 @@ def chat():
     return render_template('template.html', view="chat", title="Chat", 
                            header="Communications", pilots=pilots)
 
+@app.route('/api/heartbeat')
+def heartbeat():
+    if 'user_id' in session:
+        # Accessing the session here resets the 'PERMANENT_SESSION_LIFETIME' timer
+        return jsonify({"status": "staying_alive"}), 200
+    return jsonify({"status": "expired"}), 401
+
 if __name__ == '__main__':
     init_db() # Create the DB and tables on launch
     
@@ -713,6 +756,9 @@ if __name__ == '__main__':
     finally:
         s.close()
 
+    HOST = config_data.get('host', '0.0.0.0')
+    DEBUG = config_data.get('debug_mode', True)
+    
     print(f"\n🚀 SERVER STARTING\n🏠 Local Access: http://127.0.0.1:{PORT}\n🌐 LAN Access:   http://{IP}:{PORT}\n")
-    socketio.run(app, host='0.0.0.0', port=PORT, debug=True)
+    socketio.run(app, host=HOST, port=PORT, debug=DEBUG)
     
