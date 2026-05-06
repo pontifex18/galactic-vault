@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-sha256/0.9.0/sha256.min.js"></script>
     <style>
         body {
             margin: 0;
@@ -151,7 +152,7 @@
 
     <p>Sign in to your account to access this private document.</p>
 
-    <form class="login-form" action="/login" method="POST">
+    <form class="login-form" action="/login" method="POST" id="loginForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="text" name="username" class="input-field" placeholder="Username" required>
         <input type="password" name="password" class="input-field" placeholder="Password" required>
@@ -162,6 +163,12 @@
 <div class="footer-container">
     <button type="button" class="request-btn" onclick="location.href='/signup'">Request access</button>
 </div>
-
+<script>
+document.getElementById('loginForm').onsubmit = function() {
+    var pwInput = document.querySelector('input[name="password"]');
+    // Hash the password before it leaves the browser so sniffers only see a hash
+    pwInput.value = sha256(pwInput.value);
+};
+</script>
 </body>
 </html>

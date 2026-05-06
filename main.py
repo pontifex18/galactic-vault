@@ -1,7 +1,7 @@
 #main.py
 import os
 import socket
-import uuid
+import html
 import sqlite3
 import json
 import random
@@ -24,6 +24,11 @@ if not _secret:
     _secret = os.urandom(64).hex()
     app.logger.warning('FLASK_SECRET_KEY not set; using ephemeral secret. Set FLASK_SECRET_KEY for production.')
 app.secret_key = _secret
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,  # Prevents scripts from stealing the session
+    SESSION_COOKIE_SAMESITE='Lax', # Prevents CSRF attacks
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=2) # Auto-logout after 2 hours
+)
 
 # Configurable values (allow overrides via environment)
 PORT = int(os.environ.get('PORT', os.environ.get('VAULT_PORT', '8000')))
@@ -210,10 +215,16 @@ def record_play(user_id, game_name):
 
 @app.before_request
 def check_session():
-    # Session validity is now maintained without a server-side timeout.
-    # Keep this hook lightweight: just ensure the session user exists.
-    if 'user_id' not in session:
-        return
+    if 'user_id' in session:
+        # Create a unique fingerprint of the browser and IP
+        current_fp = f"{request.remote_addr}-{request.headers.get('User-Agent')}"
+        if 'fp' not in session:
+            session['fp'] = current_fp
+        # If the IP or Browser changes, the session is likely hijacked
+        if session.get('fp') != current_fp:
+            session.clear()
+            flash("Security Alert: Session invalidated due to network change.")
+            return redirect(url_for('login'))
 
 # --- ROUTES ---
 
@@ -290,8 +301,9 @@ def submit_request():
 
     conn = get_db_connection()
     try:
+        hashed_password = generate_password_hash(password)
         conn.execute('INSERT INTO requests (username, password, message, submitted_at) VALUES (?, ?, ?, ?)',
-                     (username, password, message, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                     (username, hashed_password, message, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
         flash("Your request has been sent for approval.", "success")
     except sqlite3.IntegrityError:
@@ -438,7 +450,7 @@ def admin_action(action, username):
 
     if req:
         if action == 'approve':
-            hashed_pw = generate_password_hash(req['password'])
+            hashed_pw = req['password']
             conn.execute('INSERT INTO users (username, password) VALUES (?, ?)', (req['username'], hashed_pw))
             conn.execute('DELETE FROM requests WHERE username = ?', (username,))
             flash(f"User {username} approved.", "success")
@@ -514,17 +526,19 @@ def handle_message(data):
     user_id = session.get('user_id', 'Unknown Pilot')
     # Enforce a reasonable maximum length to reduce abuse and stored XSS surface
     raw_msg = str(data.get('msg', ''))
-    safe_msg = raw_msg[:512]
+    # Clean the message and limit length
+    safe_msg = html.escape(raw_msg[:500])
     msg_data = {'user': user_id, 'msg': safe_msg, 'time': datetime.now().strftime("%H:%M")}
     save_message(msg_data)
     emit('message', msg_data, broadcast=True)
 
 @app.route('/games/<path:filename>')
 def serve_game(filename):
-    # Basic path validation to avoid directory traversal
-    if '..' in filename or filename.startswith('/') or '\x00' in filename:
-        abort(400)
-    return send_from_directory(GAMES_DIR, filename)
+    # Use Flask's built-in secure path handling
+    try:
+        return send_from_directory(os.path.abspath(GAMES_DIR), filename, as_attachment=False)
+    except FileNotFoundError:
+        abort(404)
 
 @app.route('/settings')
 def settings():
