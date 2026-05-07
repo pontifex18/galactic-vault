@@ -352,3 +352,47 @@ setInterval(function() {
         })
         .catch(err => console.log('Heartbeat failed:', err));
 }, 60000); // 60,000ms = 1 minute
+
+
+function showToast(title, message, iconUrl = 'https://ui-avatars.com/api/?name=V&background=818cf8&color=fff') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+
+    toast.innerHTML = `
+        <img src="${iconUrl}" class="toast-img" alt="icon">
+        <div class="toast-content">
+            <div class="toast-title">${title}</div>
+            <div class="toast-text">${message}</div>
+        </div>
+        <div class="toast-progress"></div>
+    `;
+
+    container.appendChild(toast);
+
+    // This handles the automatic slide-out after 5 seconds
+    const autoClose = setTimeout(() => {
+        closeToast(toast);
+    }, 5000);
+
+    // This handles the slide-out if the user clicks it early
+    toast.onclick = () => {
+        clearTimeout(autoClose);
+        closeToast(toast);
+    };
+}
+
+function closeToast(toast) {
+    // 1. Add the class that triggers the CSS 'toastSlideOut' animation
+    toast.classList.add('outgoing'); 
+
+    // 2. Wait for that specific animation to finish before removing from DOM
+    toast.addEventListener('animationend', (e) => {
+        // Only remove if the animation that ended was the slide-out
+        if (e.animationName === 'toastSlideOut') {
+            toast.remove();
+        }
+    });
+}

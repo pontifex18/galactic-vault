@@ -392,10 +392,11 @@ input[type="text"] {
 .users-area { flex: 1; }
 
 #pilot-list {
+    max-height: 70vh; 
+    overflow-y: auto; 
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    margin-top: 10px;
+    gap: 8px;
 }
 
 .pilot-card {
@@ -431,6 +432,10 @@ input[type="text"] {
     font-size: 0.9rem;
     font-weight: 500;
     letter-spacing: 0.02em;
+    white-space: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    max-width: 100%;
 }
 
 .status-dot {

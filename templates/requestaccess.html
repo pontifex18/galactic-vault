@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-sha256/0.9.0/sha256.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/google.css') }}">
 </head>
 <body>
@@ -33,12 +32,5 @@
 <div class="footer-container">
     <button type="button" class="back-btn" onclick="history.back()">Back to login</button>
 </div>
-<script>
-document.getElementById('loginForm').onsubmit = function() {
-    var pwInput = document.querySelector('input[name="password"]');
-    // Hash the password before it leaves the browser so sniffers only see a hash
-    pwInput.value = sha256(pwInput.value);
-};
-</script>
 </body>
 </html>

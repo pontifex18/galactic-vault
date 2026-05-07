@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/vault.css') }}">
     <meta name="csrf-token" content="{{ csrf_token() }}">
 </head>
+<div id="toast-container"></div>
 {% if session.get('user_id') and view != 'chat' and show_comm_popup %}
 <div id="chat-container">
     <div id="chat-header" onclick="toggleChat()">
@@ -33,7 +34,7 @@
             <a href="#" id="nav-favorites" class="nav-item">Favorites</a>
             <a href="/chat" class="nav-item {% if view == 'chat' %}active{% endif %}">Communications</a>
             <a href="/settings" class="nav-item {% if view == 'settings' %}active{% endif %}">System Configuration</a>
-            {% if session.get('user_id') == 'admin' %}
+            {% if session.get('user_id') == admin_name %}
             <a href="/admin/dashboard" class="nav-item {% if view == 'admin' %}active{% endif %}">
                 Admin Dashboard
             </a>

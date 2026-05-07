@@ -166,11 +166,18 @@ def set_user_setting(user_id, key, value):
 
 @app.context_processor
 def inject_user_settings():
+    # Fetch the admin user directly from your existing config logic
+    admin_name = config_data.get('admin_user', 'admin') 
+    
     show_comm_popup = True
     if session.get('user_id'):
         val = get_user_setting(session['user_id'], 'show_comm_popup', '1')
         show_comm_popup = (val == '1' or val is True)
-    return {'show_comm_popup': show_comm_popup}
+        
+    return {
+        'show_comm_popup': show_comm_popup,
+        'admin_name': admin_name  # This makes 'admin_name' available to the HTML
+    }
 
 # --- AUTHENTICATION HELPERS ---
 
