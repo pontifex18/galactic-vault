@@ -49,7 +49,7 @@ ADMIN_USER = config_data.get('admin_user', 'admin') # From config.toml
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=config_data.get('session_timeout', 120))
 
 # Enable Socket.IO; do not let it manage Flask sessions itself (we manage sessions explicitly)
-socketio = SocketIO(app, cors_allowed_origins="*", manage_session=False)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 # CSRF protection for POST/PUT/DELETE routes
 csrf = CSRFProtect(app)

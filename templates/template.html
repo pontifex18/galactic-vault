@@ -49,8 +49,26 @@
 
     <main class="main-wrapper">
         {% if view == "chat" %}
-        <div class="chat-dual-layout">
-            <div class="container chat-area">
+        <div class="chat-dual-layout unified-deck container">
+            <div class="deck-section frequencies-column">
+                <h1>FREQUENCIES</h1>
+                <div id="channel-list">
+                    <div class="channel-card active">
+                        <span class="channel-icon">📡</span>
+                        <span class="channel-name">General Ops</span>
+                    </div>
+                    <div class="channel-card">
+                        <span class="channel-icon">🛠️</span>
+                        <span class="channel-name">Tech Deck</span>
+                    </div>
+                    <div class="channel-card">
+                        <span class="channel-icon">🌌</span>
+                        <span class="channel-name">Deep Space</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="deck-section main-chat-column">
                 <h1>COMM-LINK</h1>
                 <div id="chat-messages" style="height: 500px;"></div>
                 <div id="chat-input-area">
@@ -58,7 +76,7 @@
                 </div>
             </div>
             
-            <div class="container users-area">
+            <div class="deck-section pilots-column">
                 <h1>ACTIVE PILOTS</h1>
                 <div id="pilot-list">
                     {% for pilot in pilots %}

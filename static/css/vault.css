@@ -381,15 +381,92 @@ input[type="text"] {
     text-align: left; 
 }
 
-.chat-dual-layout {
-    display: flex;
-    gap: 20px;
-    width: 100%;
+/* ==========================================================================
+   REFINED UNIFIED DECK (Alignment & Typography Fix)
+   ========================================================================== */
+
+.unified-deck {
+    display: flex !important;
+    flex-direction: row !important;
+    padding: 0 !important;
+    overflow: hidden;
     max-width: 1400px;
+    align-items: stretch; /* Ensures all columns are the same height */
 }
 
-.chat-area { flex: 3; } 
-.users-area { flex: 1; }
+.deck-section {
+    padding: 30px;
+    display: flex;
+    flex-direction: column;
+    height: auto; /* Allows section to stretch to container bottom */
+}
+
+/* 1. Alignment Fix: Ensure sidebars extend to the input's bottom */
+.frequencies-column, .pilots-column {
+    flex: 1;
+    min-width: 220px;
+    background: rgba(0, 0, 0, 0.1); /* Subtle depth difference */
+}
+
+/* Vertical Dividers with Specific Widths */
+.frequencies-column {
+    flex: 1;               /* Standard width */
+    border-right: 1px solid var(--border);
+    min-width: 220px;      
+    background: rgba(0, 0, 0, 0.1);
+}
+
+.main-chat-column {
+    flex: 2.2;             /* Middle area */
+}
+
+.pilots-column {
+    flex: 1.25;             /* Increased flex specifically for pilots */
+    border-left: 1px solid var(--border);
+    min-width: 320px;      /* Increased minimum width for pilots */
+    background: rgba(0, 0, 0, 0.1);
+}
+
+.main-chat-column {
+    flex: 2.5;
+    /* No border needed here if sidebars have them */
+}
+
+/* 2. Consistency Fix: Match global H1 styles (Size, Spacing, Color) */
+.deck-section h1 {
+    font-weight: 300; 
+    font-size: 0.8rem; 
+    text-transform: uppercase; 
+    letter-spacing: 0.4em; 
+    margin-bottom: 30px; 
+    color: var(--primary); 
+    text-align: center; /* Matches the main Vault headers */
+}
+
+/* 3. List Container Fix: Ensures lists take up available space */
+#channel-list, #pilot-list {
+    flex-grow: 1;
+    overflow-y: auto;
+    height: 100%;
+}
+
+/* Re-applying consistent card styles */
+.channel-card, .pilot-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px;
+    background: var(--card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    margin-bottom: 8px;
+    cursor: pointer;
+}
+
+.channel-card:hover, .pilot-card:hover {
+    border-color: var(--primary);
+    background: rgba(255, 255, 255, 0.05);
+}
 
 #pilot-list {
     max-height: 70vh; 
