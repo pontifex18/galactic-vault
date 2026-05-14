@@ -87,6 +87,26 @@
                             <span class="pilot-name">{{ pilot.username }}</span>
                         </div>
                         <span class="status-dot {{ 'online' if pilot.online else 'offline' }}"></span>
+                        
+                        <div class="pilot-hover-profile">
+                            <div class="hover-profile-header">
+                                <img src="https://ui-avatars.com/api/?name={{ pilot.username }}&background=random&color=fff&size=48" class="hover-avatar" alt="avatar">
+                                <div>
+                                    <div class="hover-username">{{ pilot.username }}</div>
+                                    <div class="hover-rank">Vanguard Pilot</div>
+                                </div>
+                            </div>
+                            <div class="hover-profile-stats">
+                                <div class="hover-stat">
+                                    <span>Status:</span> 
+                                    <span class="{{ 'status-online' if pilot.online else 'status-offline' }}">
+                                        {{ 'ONLINE' if pilot.online else 'OFFLINE' }}
+                                    </span>
+                                </div>
+                                <div class="hover-stat"><span>Assigned Sector:</span> <span>Deep Space-9</span></div>
+                                <div class="hover-stat"><span>Comm Link:</span> <span>Uplink Secure</span></div>
+                            </div>
+                        </div>
                     </div>
                     {% endfor %}
                 </div>

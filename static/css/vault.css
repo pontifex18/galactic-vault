@@ -484,6 +484,7 @@ input[type="text"] {
     background: rgba(255, 255, 255, 0.03);
     border-radius: 12px;
     border: 1px solid var(--border);
+    position: relative; /* Crucial for absolute positioning of the popup */
 }
 
 .pilot-card:hover {
@@ -603,3 +604,84 @@ body.login-view .container { max-width: 450px; }
 
 input:checked + .theme-slider { background-color: var(--primary); }
 input:checked + .theme-slider:before { transform: translateX(20px); background-color: white; }
+/* ==========================================================================
+   7. PILOT HOVER PROFILE POPUP
+   ========================================================================== */
+.pilot-hover-profile {
+    position: fixed; /* Bypasses parent overflow clipping */
+    width: 250px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    backdrop-filter: var(--blur-std);
+    border-radius: 16px;
+    padding: 16px;
+    box-shadow: var(--shadow);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none; /* Prevents it from hijacking mouse clicks while invisible */
+    z-index: 9999; /* Higher index to sit cleanly on top of all page layers */
+    transform: translate(-100%, -50%) scale(0.95); /* Anchor alignment left & center vertically */
+    transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), 
+                transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), 
+                visibility 0.25s;
+}
+
+/* Trigger animation when hovering over the parent pilot-card */
+.pilot-card:hover .pilot-hover-profile {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(-100%, -50%) scale(1);
+}
+
+.hover-profile-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+}
+
+.hover-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 2px solid var(--primary);
+}
+
+.hover-username {
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: var(--text);
+    text-align: left;
+}
+
+.hover-rank {
+    font-size: 0.65rem;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    text-align: left;
+}
+
+.hover-profile-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.hover-stat {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.hover-stat span:last-child {
+    color: var(--text);
+    font-weight: 500;
+}
+
+/* Status text coloring inside popup */
+.hover-stat .status-online { color: #4ade80 !important; }
+.hover-stat .status-offline { color: #f87171 !important; opacity: 0.7; }

@@ -396,3 +396,21 @@ function closeToast(toast) {
         }
     });
 }
+
+/* ==========================================================================
+   DYNAMIC PILOT HOVER PROFILE POSITIONING
+   ========================================================================== */
+document.addEventListener('mouseover', (e) => {
+    const card = e.target.closest('.pilot-card');
+    if (!card) return;
+    
+    const profile = card.querySelector('.pilot-hover-profile');
+    if (!profile) return;
+    
+    // Track where the card sits on the physical screen viewport
+    const rect = card.getBoundingClientRect();
+    
+    // Feed the coordinates instantly to the fixed box
+    profile.style.top = `${rect.top + (rect.height / 2)}px`;
+    profile.style.left = `${rect.left - 310}px`; // Leaves a sleek 15px margin to the left
+});
