@@ -9,7 +9,7 @@ import toml
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, jsonify, g, abort
-from flask_socketio import SocketIO, emit, disconnect
+from flask_socketio import SocketIO, emit, disconnect, join_room, leave_room
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -64,6 +64,7 @@ def handle_csrf_error(e):
 # In-memory tracking for active sessions
 online_pings = {}
 user_sids = {}
+sid_channels = {}
 
 # --- DATABASE HELPERS ---
 
@@ -97,9 +98,18 @@ def init_db():
     # Requests: Pending approvals
     conn.execute('''CREATE TABLE IF NOT EXISTS requests 
                     (username TEXT PRIMARY KEY, password TEXT, message TEXT, submitted_at TEXT)''')
-    # Chat: Last 50 messages
+    # Chat: Last 50 messages (adds `channel` column for multi-channel support)
     conn.execute('''CREATE TABLE IF NOT EXISTS chat 
-                    (id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, msg TEXT, time TEXT)''')
+                    (id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, msg TEXT, time TEXT, channel TEXT DEFAULT 'General')''')
+    # Ensure older DBs have the `channel` column
+    cur = conn.execute("PRAGMA table_info(chat)")
+    cols = [r[1] for r in cur.fetchall()]
+    if 'channel' not in cols:
+        try:
+            conn.execute("ALTER TABLE chat ADD COLUMN channel TEXT DEFAULT 'General'")
+        except Exception:
+            # If alter fails, continue; app will still function but without per-channel history
+            pass
     # Favorites: User-game mapping
     conn.execute('''CREATE TABLE IF NOT EXISTS favorites 
                     (user_id TEXT, game_name TEXT, PRIMARY KEY (user_id, game_name))''')
@@ -123,13 +133,15 @@ def init_db():
 
 
 def _get_active_session_sid(username):
+    c = None
     try:
         c = sqlite3.connect(DB_FILE)
         c.row_factory = sqlite3.Row
         row = c.execute('SELECT sid FROM active_sessions WHERE user_id = ?', (username,)).fetchone()
         return row['sid'] if row else None
     finally:
-        c.close()
+        if c:
+            c.close()
 
 
 def _set_active_session(username, sid):
@@ -191,19 +203,22 @@ def check_credentials(username, password):
 
 # --- CHAT HELPERS ---
 
-def load_chat():
+def load_chat(channel='General'):
     conn = get_db_connection()
-    rows = conn.execute('SELECT user, msg, time FROM chat ORDER BY id ASC').fetchall()
+    if channel:
+        rows = conn.execute('SELECT user, msg, time, channel FROM chat WHERE channel = ? ORDER BY id ASC', (channel,)).fetchall()
+    else:
+        rows = conn.execute('SELECT user, msg, time, channel FROM chat ORDER BY id ASC').fetchall()
     return [dict(row) for row in rows]
 
 def save_message(msg_data):
     conn = get_db_connection()
-    conn.execute('INSERT INTO chat (user, msg, time) VALUES (?, ?, ?)',
-                 (msg_data['user'], msg_data['msg'], msg_data['time']))
-    
+    channel = msg_data.get('channel', 'General')
+    conn.execute('INSERT INTO chat (user, msg, time, channel) VALUES (?, ?, ?, ?)',
+                 (msg_data['user'], msg_data['msg'], msg_data['time'], channel))
     # Respect max_message_count from config
     max_count = config_data.get('max_message_count', 50)
-    conn.execute(f'DELETE FROM chat WHERE id NOT IN (SELECT id FROM chat ORDER BY id DESC LIMIT {max_count})')
+    conn.execute(f"DELETE FROM chat WHERE id NOT IN (SELECT id FROM chat ORDER BY id DESC LIMIT {max_count})")
     conn.commit()
 
 # --- GAME DATA HELPERS ---
@@ -283,10 +298,8 @@ def login():
                 try:
                     socketio.emit('force_logout', {'reason': 'New login from another location.'}, to=existing_sid)
                     # Attempt to close the previous socket connection
-                    try:
-                        socketio.disconnect(existing_sid)
-                    except Exception:
-                        app.logger.debug('socketio.disconnect failed for sid %s', existing_sid)
+                    # Attempting a programmatic disconnect can be unreliable across transports;
+                    # rely on the client to handle `force_logout` notification.
                 except Exception:
                     app.logger.exception('Error while forcing logout for existing session')
                 finally:
@@ -529,10 +542,7 @@ def handle_connect():
         if existing_sid and existing_sid != sid:
             try:
                 socketio.emit('force_logout', {'reason': 'Your session was terminated due to a new login.'}, to=existing_sid)
-                try:
-                    socketio.disconnect(existing_sid)
-                except Exception:
-                    app.logger.debug('Failed to socketio.disconnect sid %s', existing_sid)
+                # Programmatic disconnect omitted; client will be notified via force_logout
             except Exception:
                 app.logger.exception('Error while forcing logout for sid %s', existing_sid)
 
@@ -547,9 +557,38 @@ def handle_connect():
         online_pings[sid] = {'user': user_id, 'seen': datetime.now()}
         _set_active_session(user_id, sid)
 
-    # Load history and update UI
-    emit('chat_history', load_chat())
+    # Default to General channel and join the room for this SID
+    default_channel = 'General'
+    if sid:
+        sid_channels[sid] = default_channel
+        try:
+            join_room(default_channel)
+        except Exception:
+            pass
+    # Send channel-specific history and broadcast pilot list
+    emit('chat_history', load_chat(default_channel))
     broadcast_admin_update()
+
+
+@socketio.on('join_channel')
+def handle_join_channel(data):
+    sid = getattr(request, 'sid', None)
+    if not sid:
+        return
+    new_channel = data.get('channel', 'General')
+    old_channel = sid_channels.get(sid)
+    if old_channel and old_channel != new_channel:
+        try:
+            leave_room(old_channel)
+        except Exception:
+            pass
+    sid_channels[sid] = new_channel
+    try:
+        join_room(new_channel)
+    except Exception:
+        pass
+    # Send history for the newly joined channel to the requester
+    emit('chat_history', load_chat(new_channel))
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -557,6 +596,8 @@ def handle_disconnect():
     if sid in online_pings:
         user = online_pings[sid]['user']
         del online_pings[sid]
+        # Remove any channel tracking
+        sid_channels.pop(sid, None)
         # If this sid was the registered user's active sid, remove it
         if user_sids.get(user) == sid:
             user_sids.pop(user, None)
@@ -578,9 +619,20 @@ def handle_message(data):
     
     raw_msg = str(data.get('msg', ''))
     safe_msg = html.escape(raw_msg[:limit])
-    msg_data = {'user': user_id, 'msg': safe_msg, 'time': datetime.now().strftime("%H:%M")}
+    sid = getattr(request, 'sid', None)
+    # Determine channel: prefer explicit in payload, then SID mapping, fall back to General
+    channel = data.get('channel') or sid_channels.get(sid) or 'General'
+    msg_data = {'user': user_id, 'msg': safe_msg, 'time': datetime.now().strftime("%H:%M"), 'channel': channel}
     save_message(msg_data)
-    emit('message', msg_data, broadcast=True)
+    # Emit only to clients in the same channel room
+    try:
+        socketio.emit('message', msg_data, **{'to': channel})
+    except Exception:
+        try:
+            socketio.emit('message', msg_data, **{'broadcast': True})
+        except Exception:
+            # Final fallback: best-effort emit
+            socketio.emit('message', msg_data)
 
 @app.route('/games/<path:filename>')
 def serve_game(filename):

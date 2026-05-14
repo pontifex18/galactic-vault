@@ -32,9 +32,13 @@ const UI = {
     chatInput: document.getElementById('chat-input'),
     chatContainer: document.getElementById('chat-container'),
     chatArrow: document.getElementById('chat-arrow'),
+    channelList: document.getElementById('channel-list'),
     pilotList: document.getElementById('pilot-list'),
     themeToggle: document.getElementById('theme-toggle')
 };
+
+// Current active chat channel
+let currentChannel = localStorage.getItem('gv_selected_channel') || 'General';
 
 /* ==========================================================================
    3. CORE UI LOGIC
@@ -279,16 +283,56 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // Initial Data Load
     loadMoreGames();
+    // Initialize channel UI if present
+    if (UI.channelList) {
+        const cards = Array.from(UI.channelList.querySelectorAll('.channel-card'));
+        function setActiveCard(name) {
+            cards.forEach(c => c.classList.toggle('active', c.querySelector('.channel-name') && c.querySelector('.channel-name').textContent.trim() === name));
+        }
+        // Attach click handlers
+        cards.forEach(card => {
+            card.addEventListener('click', (e) => {
+                const nameEl = card.querySelector('.channel-name');
+                if (!nameEl) return;
+                const name = nameEl.textContent.trim();
+                if (!name) return;
+                joinChannel(name);
+            });
+        });
+        // Apply persisted selection or default
+        setActiveCard(currentChannel);
+    }
 });
+
+function joinChannel(name) {
+    if (!name) return;
+    currentChannel = name;
+    localStorage.setItem('gv_selected_channel', name);
+    // Update UI active state
+    if (UI.channelList) {
+        const cards = Array.from(UI.channelList.querySelectorAll('.channel-card'));
+        cards.forEach(c => c.classList.toggle('active', c.querySelector('.channel-name') && c.querySelector('.channel-name').textContent.trim() === name));
+    }
+    // Inform server and request history for this channel
+    if (socket && socket.connected) {
+        socket.emit('join_channel', { channel: name });
+    }
+    // Update input placeholder to reflect channel
+    if (UI.chatInput) UI.chatInput.setAttribute('placeholder', `Transmit message to ${name}...`);
+}
 
 /* ==========================================================================
    7. SOCKET.IO LISTENERS
    ========================================================================== */
 
-if (socket) {
+    if (socket) {
     // Chat logic
     if (UI.chatMsgs && UI.chatInput) {
-        socket.on('message', (data) => addMessage(data));
+        socket.on('message', (data) => {
+            // If message carries channel info, ensure it matches current channel
+            if (data && data.channel && data.channel !== currentChannel) return;
+            addMessage(data);
+        });
 
         socket.on('chat_history', (history) => {
             UI.chatMsgs.innerHTML = '';
@@ -297,7 +341,7 @@ if (socket) {
 
         UI.chatInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && UI.chatInput.value.trim()) {
-                socket.emit('message', { msg: UI.chatInput.value });
+                socket.emit('message', { msg: UI.chatInput.value, channel: currentChannel });
                 UI.chatInput.value = '';
             }
         });
@@ -434,11 +478,11 @@ function emitStatus() {
     socket.emit('heartbeat', { status: status });
 }
 document.addEventListener('visibilitychange', emitStatus);
-if (socket) { socket.on('connect', emitStatus); }
+if (socket) { socket.on('connect', () => { emitStatus(); if (typeof joinChannel === 'function') joinChannel(currentChannel); }); }
 
-// Also emit status immediately on connect
+// Also ensure we join the selected channel on connect
 if (socket) {
-    socket.on('connect', emitStatus);
+    socket.on('connect', () => { if (typeof joinChannel === 'function') joinChannel(currentChannel); });
 }
 
 function confirmDeletion() {

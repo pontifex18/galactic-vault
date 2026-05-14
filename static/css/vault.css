@@ -468,6 +468,11 @@ input[type="text"] {
     background: rgba(255, 255, 255, 0.05);
 }
 
+.channel-card.active {
+    border-color: var(--primary);
+    background: linear-gradient(90deg, rgba(129,140,248,0.08), rgba(129,140,248,0.02));
+}
+
 #pilot-list {
     max-height: 70vh; 
     overflow-y: auto; 
