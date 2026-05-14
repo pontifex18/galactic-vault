@@ -308,6 +308,15 @@
     <input type="hidden" name="note" id="p-note">
 </form>
 </div>
+
+<div class="container" style="grid-column: span 2; margin-top: 20px; background: rgba(220, 38, 38, 0.1); border: 1px solid #ef4444; border-radius: 16px; padding: 20px;">
+    <h3 style="font-size: 0.7rem; color: #ef4444; letter-spacing: 0.2em; margin-bottom: 15px;">TERMINATE USER ACCESS</h3>
+    <form action="/admin/delete-user" method="POST" onsubmit="return confirmDeletion()" style="display: flex; gap: 15px; align-items: center;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="text" name="username" id="delete-username" placeholder="Enter username to delete..." required style="margin-bottom: 0; flex: 1; border-color: rgba(239, 68, 68, 0.3);">
+        <button type="submit" class="btn-ui secondary" style="width: auto; background: #ef4444; color: white; border: none; padding: 12px 25px;">DELETE USER</button>
+    </form>
+</div>
             {% endif %}
         </div>
         {% endif %}

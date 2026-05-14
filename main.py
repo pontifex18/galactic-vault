@@ -494,12 +494,27 @@ def admin_action(action, username):
 # --- SOCKETS ---
 
 def broadcast_admin_update():
-    # Extract unique usernames from the online_pings dictionary
-    # (Since one user might have multiple tabs open/multiple SIDs)
-    current_online = list(set(data['user'] for data in online_pings.values()))
+    user_status_map = {}
+    for sid, data in online_pings.items():
+        uname = data['user']
+        stat = data.get('status', 'online')
+        # If any tab is 'online', the user is 'online'
+        if uname not in user_status_map or stat == 'online':
+            user_status_map[uname] = stat
     
-    # Broadcast this list to EVERYONE connected
-    socketio.emit('admin_user_update', {'users': current_online})
+    # Broadcast to all users so the Chat/Pilot list updates live
+    socketio.emit('admin_user_update', {'user_statuses': user_status_map})
+
+@socketio.on('heartbeat')
+def handle_heartbeat(data):
+    sid = getattr(request, 'sid', None)
+    if sid and 'user_id' in session:
+        online_pings[sid] = {
+            'user': session['user_id'], 
+            'last_seen': datetime.now(),
+            'status': data.get('status', 'online')
+        }
+        broadcast_admin_update()
 
 @socketio.on('connect')
 def handle_connect():
@@ -744,12 +759,39 @@ def chat():
     return render_template('template.html', view="chat", title="Chat", 
                            header="Communications", pilots=pilots)
 
-@app.route('/api/heartbeat')
-def heartbeat():
-    if 'user_id' in session:
-        # Accessing the session here resets the 'PERMANENT_SESSION_LIFETIME' timer
-        return jsonify({"status": "staying_alive"}), 200
-    return jsonify({"status": "expired"}), 401
+@app.route('/admin/delete-user', methods=['POST'])
+def delete_user():
+    admin_config = config_data.get('admin_user', 'admin')
+    allowed_admins = [admin_config] if isinstance(admin_config, str) else admin_config
+    
+    if session.get('user_id') not in allowed_admins:
+        return jsonify({"error": "Unauthorized"}), 403
+
+    username_to_delete = request.form.get('username', '').strip()
+    if not username_to_delete:
+        flash("ERROR: No username provided", "error")
+        return redirect(url_for('admin_dashboard'))
+
+    if username_to_delete in allowed_admins:
+        flash("ERROR: Cannot delete an administrator account", "error")
+        return redirect(url_for('admin_dashboard'))
+
+    conn = get_db_connection()
+    user_exists = conn.execute('SELECT 1 FROM users WHERE username = ?', (username_to_delete,)).fetchone()
+    
+    if user_exists:
+        # Cascading delete across related tables
+        conn.execute('DELETE FROM users WHERE username = ?', (username_to_delete,))
+        conn.execute('DELETE FROM favorites WHERE user_id = ?', (username_to_delete,))
+        conn.execute('DELETE FROM history WHERE user_id = ?', (username_to_delete,))
+        conn.execute('DELETE FROM user_settings WHERE user_id = ?', (username_to_delete,))
+        conn.execute('DELETE FROM active_sessions WHERE user_id = ?', (username_to_delete,))
+        conn.commit()
+        flash(f"User {username_to_delete} has been purged from the system.", "success")
+    else:
+        flash(f"ERROR: User {username_to_delete} not found.", "error")
+
+    return redirect(url_for('admin_dashboard'))
 
 if __name__ == '__main__':
     init_db() # Create the DB and tables on launch

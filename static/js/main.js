@@ -303,27 +303,36 @@ if (socket) {
         });
     }
 
-    // Pilot List Admin Updates
+    // Pilot List Admin Updates - Now handles Online, Idle, and Offline
     socket.on('admin_user_update', (data) => {
         if (!UI.pilotList) return;
+        const statuses = data.user_statuses || {}; 
         const cards = Array.from(UI.pilotList.querySelectorAll('.pilot-card'));
 
         cards.forEach(card => {
             const username = card.getAttribute('data-username');
             const dot = card.querySelector('.status-dot');
-            const isOnline = data.users.includes(username);
+            const profileStatus = card.querySelector('.hover-profile-stats .hover-stat span:last-child');
             
-            dot.classList.toggle('online', isOnline);
-            dot.classList.toggle('offline', !isOnline);
+            const currentStatus = statuses[username] || 'offline';
+
+            // Reset and apply new status classes
+            dot.classList.remove('online', 'offline', 'idle');
+            dot.classList.add(currentStatus);
+
+            if (profileStatus) {
+                profileStatus.className = `status-${currentStatus}`;
+                profileStatus.textContent = currentStatus.toUpperCase();
+            }
         });
 
-        // SORT: Move online cards to the top
+        // Instant Re-sort: Online > Idle > Offline
+        const weight = { 'online': 2, 'idle': 1, 'offline': 0 };
         cards.sort((a, b) => {
-            const aOnline = a.querySelector('.status-dot').classList.contains('online');
-            const bOnline = b.querySelector('.status-dot').classList.contains('online');
-            return bOnline - aOnline;
+            const aStat = Array.from(a.querySelector('.status-dot').classList).find(c => weight[c] !== undefined) || 'offline';
+            const bStat = Array.from(b.querySelector('.status-dot').classList).find(c => weight[c] !== undefined) || 'offline';
+            return weight[bStat] - weight[aStat];
         });
-
         cards.forEach(card => UI.pilotList.appendChild(card));
     });
 
@@ -414,3 +423,32 @@ document.addEventListener('mouseover', (e) => {
     profile.style.top = `${rect.top + (rect.height / 2)}px`;
     profile.style.left = `${rect.left - 310}px`; // Leaves a sleek 15px margin to the left
 });
+
+/* ==========================================================================
+   VISIBILITY & IDLE TRACKING
+   ========================================================================== */
+// Visibility Tracker: Tells the server if the tab is focused or backgrounded
+function emitStatus() {
+    if (!socket || !socket.connected) return;
+    const status = document.visibilityState === 'visible' ? 'online' : 'idle';
+    socket.emit('heartbeat', { status: status });
+}
+document.addEventListener('visibilitychange', emitStatus);
+if (socket) { socket.on('connect', emitStatus); }
+
+// Also emit status immediately on connect
+if (socket) {
+    socket.on('connect', emitStatus);
+}
+
+function confirmDeletion() {
+    const username = document.getElementById('delete-username').value;
+    if (!username) return false;
+    
+    const doubleCheck = confirm(`CRITICAL ACTION: Are you sure you want to permanently delete user "${username}"?`);
+    
+    if (doubleCheck) {
+        return confirm("FINAL WARNING: This action cannot be undone. Proceed?");
+    }
+    return false;
+}
