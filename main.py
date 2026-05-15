@@ -88,49 +88,66 @@ def close_db_connection(exception):
         db.close()
 
 def init_db():
-    """Initializes the database schema if it doesn't exist."""
-    # Use a direct connection here (outside of request context)
+    """Initializes the database schema and automatically migrates missing columns."""
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
+
+    # --- 1. DEFINE TABLES ---
     # Users: Approved pilots
     conn.execute('''CREATE TABLE IF NOT EXISTS users 
                     (username TEXT PRIMARY KEY, password TEXT)''')
+    
     # Requests: Pending approvals
     conn.execute('''CREATE TABLE IF NOT EXISTS requests 
                     (username TEXT PRIMARY KEY, password TEXT, message TEXT, submitted_at TEXT)''')
-    # Chat: Last 50 messages (adds `channel` column for multi-channel support)
+    
+    # Chat: Message history
     conn.execute('''CREATE TABLE IF NOT EXISTS chat 
                     (id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, msg TEXT, time TEXT, channel TEXT DEFAULT 'General')''')
-    # Ensure older DBs have the `channel` column
-    cur = conn.execute("PRAGMA table_info(chat)")
-    cols = [r[1] for r in cur.fetchall()]
-    if 'channel' not in cols:
-        try:
-            conn.execute("ALTER TABLE chat ADD COLUMN channel TEXT DEFAULT 'General'")
-        except Exception:
-            # If alter fails, continue; app will still function but without per-channel history
-            pass
+    
     # Favorites: User-game mapping
     conn.execute('''CREATE TABLE IF NOT EXISTS favorites 
                     (user_id TEXT, game_name TEXT, PRIMARY KEY (user_id, game_name))''')
+    
     # History: Recent plays
     conn.execute('''CREATE TABLE IF NOT EXISTS history 
                     (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, game_name TEXT, last_played TIMESTAMP)''')
+    
     # Issues: User reports
     conn.execute('''CREATE TABLE IF NOT EXISTS issues 
                     (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, game_name TEXT, report TEXT, timestamp TEXT)''')
-    # Known Issues: Admin notes shown to users
+    
+    # Known Issues: Admin notes
     conn.execute('''CREATE TABLE IF NOT EXISTS known_issues 
                     (id INTEGER PRIMARY KEY AUTOINCREMENT, game_name TEXT, note TEXT)''')
-    # Per-user settings (key/value)
+    
+    # Per-user settings
     conn.execute('''CREATE TABLE IF NOT EXISTS user_settings
                     (user_id TEXT, key TEXT, value TEXT, PRIMARY KEY (user_id, key))''')
-    # Track active sessions so we can attempt to enforce single-session logins
+    
+    # Active sessions for presence tracking
     conn.execute('''CREATE TABLE IF NOT EXISTS active_sessions
                     (user_id TEXT PRIMARY KEY, sid TEXT, last_seen TIMESTAMP)''')
+
+    # --- 2. AUTOMATIC MIGRATIONS (ADD MISSING COLUMNS) ---
+    def add_column_if_missing(table, column, definition):
+        cursor = conn.execute(f"PRAGMA table_info({table})")
+        columns = [row[1] for row in cursor.fetchall()]
+        if column not in columns:
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+                print(f"Migration: Added '{column}' to '{table}'")
+            except Exception as e:
+                print(f"Migration Error on {table}.{column}: {e}")
+
+    # Add the 'channel' column to 'chat' if it's an older DB
+    add_column_if_missing('chat', 'channel', "TEXT DEFAULT 'General'")
+
+    # Add the 'activity' column to 'active_sessions'
+    add_column_if_missing('active_sessions', 'activity', "TEXT DEFAULT 'Browsing'")
+
     conn.commit()
     conn.close()
-
 
 def _get_active_session_sid(username):
     c = None
@@ -144,11 +161,11 @@ def _get_active_session_sid(username):
             c.close()
 
 
-def _set_active_session(username, sid):
+def _set_active_session(username, sid, activity="Browsing"):
     c = sqlite3.connect(DB_FILE)
     try:
-        c.execute('INSERT OR REPLACE INTO active_sessions (user_id, sid, last_seen) VALUES (?, ?, ?)',
-                  (username, sid, datetime.now()))
+        c.execute('INSERT OR REPLACE INTO active_sessions (user_id, sid, last_seen, activity) VALUES (?, ?, ?, ?)',
+                  (username, sid, datetime.now(), activity))
         c.commit()
     finally:
         c.close()
@@ -411,6 +428,14 @@ def api_recent():
             })
     return jsonify(recent_games)
 
+
+@app.route('/api/heartbeat')
+def api_heartbeat():
+    # Client-side pings the server to verify session validity
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    return jsonify({'status': 'ok'})
+
 @app.route('/api/favorites')
 def api_favorites():
     if 'user_id' not in session: return jsonify([])
@@ -520,14 +545,35 @@ def broadcast_admin_update():
 
 @socketio.on('heartbeat')
 def handle_heartbeat(data):
+    if 'user_id' not in session:
+        return
+    
+    user_id = session['user_id']
+    activity = data.get('activity', 'Browsing')
+    status = data.get('status', 'online')
     sid = getattr(request, 'sid', None)
-    if sid and 'user_id' in session:
-        online_pings[sid] = {
-            'user': session['user_id'], 
-            'last_seen': datetime.now(),
-            'status': data.get('status', 'online')
-        }
+
+    # Update in-memory presence for this SID
+    if sid:
+        online_pings[sid] = {'user': user_id, 'seen': datetime.now(), 'activity': activity, 'status': status}
+        user_sids[user_id] = sid
+
+    # Persist last seen and activity
+    _set_active_session(user_id, sid, activity)
+
+    # Broadcast presence and admin UI updates
+    emit('presence_update', {
+        'user': user_id,
+        'last_seen': datetime.now().strftime("%Y-%m-%d %H:%M"),
+        'activity': activity,
+        'status': status
+    }, broadcast=True)
+
+    # Update admin-facing pilot status lists
+    try:
         broadcast_admin_update()
+    except Exception:
+        app.logger.exception('Error broadcasting admin update on heartbeat')
 
 @socketio.on('connect')
 def handle_connect():
@@ -554,7 +600,8 @@ def handle_connect():
 
         # Register this socket as the active session for the user
         user_sids[user_id] = sid
-        online_pings[sid] = {'user': user_id, 'seen': datetime.now()}
+        # Mark initial presence as online and set a default activity
+        online_pings[sid] = {'user': user_id, 'seen': datetime.now(), 'activity': 'Browsing', 'status': 'online'}
         _set_active_session(user_id, sid)
 
     # Default to General channel and join the room for this SID

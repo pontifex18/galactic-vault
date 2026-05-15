@@ -10,8 +10,8 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/vault.css') }}">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <script>
-    window.ADMIN_NAME = "{{ admin_name }}";
-    window.CURRENT_USER = "{{ session.get('user_id') }}";
+    window.ADMIN_NAME = {{ admin_name | tojson }};
+    window.CURRENT_USER = {{ session.get('user_id') | tojson }};
     </script>
 </head>
 <div id="toast-container"></div>
@@ -112,8 +112,14 @@
                                         {{ 'ONLINE' if pilot.online else 'OFFLINE' }}
                                     </span>
                                 </div>
-                                <div class="hover-stat"><span>Assigned Sector:</span> <span>Deep Space-9</span></div>
-                                <div class="hover-stat"><span>Comm Link:</span> <span>Uplink Secure</span></div>
+                                <div class="hover-stat">
+                                    <span>Last Seen:</span> 
+                                    <span>{{ (pilot.last_seen if pilot.last_seen else 'UNKNOWN') | upper }}</span>
+                                </div>
+                                <div class="hover-stat">
+                                    <span>Activity:</span> 
+                                    <span>{{ (pilot.activity if pilot.activity else 'BROWSING') | title }}</span>
+                                </div>
                             </div>
                         </div>
                     </div>

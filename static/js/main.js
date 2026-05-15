@@ -15,7 +15,14 @@ const AppState = {
     displayedGames: new Set(),
     cachedFavNames: null
 };
+ 
+// Idle tracking (client-side): update last interaction timestamp
+let lastActivityTime = Date.now();
+const IDLE_THRESHOLD_MS = 60 * 1000; // 1 minute idle threshold
 
+['mousemove','keydown','scroll','click','touchstart','pointerdown'].forEach(evt => {
+    document.addEventListener(evt, () => { lastActivityTime = Date.now(); }, {passive: true});
+});
 if (typeof marked !== 'undefined') {
     marked.setOptions({
         headerIds: false,
@@ -121,7 +128,10 @@ function fetchGames(query = "") {
     fetch(`/api/games?q=${encodeURIComponent(query)}`)
         .then(response => response.json())
         .then(games => {
-            if (AppState.isSearching) UI.gameGrid.innerHTML = "";
+            if (AppState.isSearching) {
+                UI.gameGrid.innerHTML = "";
+                AppState.displayedGames.clear();
+            }
             renderGames(games);
             AppState.isLoading = false;
         })
@@ -241,7 +251,8 @@ document.addEventListener("DOMContentLoaded", function() {
             if (AppState.isSearching) {
                 fetchGames(query);
             } else {
-                if (UI.gameGrid) UI.gameGrid.innerHTML = ""; 
+                if (UI.gameGrid) UI.gameGrid.innerHTML = "";
+                AppState.displayedGames.clear();
                 loadMoreGames();
             }
         });
@@ -336,7 +347,8 @@ function joinChannel(name) {
 
     // --- ADMIN PERMISSION CHECK ---
     if (UI.chatInput) {
-        const isAdmin = (window.CURRENT_USER === window.ADMIN_NAME);
+        const adminList = Array.isArray(window.ADMIN_NAME) ? window.ADMIN_NAME : (window.ADMIN_NAME ? [window.ADMIN_NAME] : []);
+        const isAdmin = adminList.includes(window.CURRENT_USER);
         
         if (name.toLowerCase() === 'announcements' && !isAdmin) {
             UI.chatInput.style.display = 'none';
@@ -394,35 +406,52 @@ function joinChannel(name) {
 
     // Pilot List Admin Updates - Now handles Online, Idle, and Offline
     socket.on('admin_user_update', (data) => {
-        if (!UI.pilotList) return;
-        const statuses = data.user_statuses || {}; 
-        const cards = Array.from(UI.pilotList.querySelectorAll('.pilot-card'));
+        const statuses = data.user_statuses || {};
 
-        cards.forEach(card => {
-            const username = card.getAttribute('data-username');
-            const dot = card.querySelector('.status-dot');
-            const profileStatus = card.querySelector('.hover-profile-stats .hover-stat span:last-child');
-            
-            const currentStatus = statuses[username] || 'offline';
+        // Update pilot-list card statuses when present (chat view)
+        if (UI.pilotList) {
+            const cards = Array.from(UI.pilotList.querySelectorAll('.pilot-card'));
+            cards.forEach(card => {
+                const username = card.getAttribute('data-username');
+                const dot = card.querySelector('.status-dot');
+                const profileStatus = card.querySelector('.hover-profile-stats .hover-stat span:last-child');
+                const currentStatus = statuses[username] || 'offline';
 
-            // Reset and apply new status classes
-            dot.classList.remove('online', 'offline', 'idle');
-            dot.classList.add(currentStatus);
+                dot.classList.remove('online', 'offline', 'idle');
+                dot.classList.add(currentStatus);
 
-            if (profileStatus) {
-                profileStatus.className = `status-${currentStatus}`;
-                profileStatus.textContent = currentStatus.toUpperCase();
-            }
-        });
+                if (profileStatus) {
+                    profileStatus.className = `status-${currentStatus}`;
+                    profileStatus.textContent = currentStatus.toUpperCase();
+                }
+            });
 
-        // Instant Re-sort: Online > Idle > Offline
-        const weight = { 'online': 2, 'idle': 1, 'offline': 0 };
-        cards.sort((a, b) => {
-            const aStat = Array.from(a.querySelector('.status-dot').classList).find(c => weight[c] !== undefined) || 'offline';
-            const bStat = Array.from(b.querySelector('.status-dot').classList).find(c => weight[c] !== undefined) || 'offline';
-            return weight[bStat] - weight[aStat];
-        });
-        cards.forEach(card => UI.pilotList.appendChild(card));
+            // Re-sort: Online > Idle > Offline
+            const weight = { 'online': 2, 'idle': 1, 'offline': 0 };
+            cards.sort((a, b) => {
+                const aStat = Array.from(a.querySelector('.status-dot').classList).find(c => weight[c] !== undefined) || 'offline';
+                const bStat = Array.from(b.querySelector('.status-dot').classList).find(c => weight[c] !== undefined) || 'offline';
+                return weight[bStat] - weight[aStat];
+            });
+            cards.forEach(card => UI.pilotList.appendChild(card));
+        }
+
+        // Update admin dashboard live user list when present (admin view)
+        const liveList = document.getElementById('live-user-list');
+        if (liveList) {
+            liveList.innerHTML = '';
+            Object.keys(statuses).forEach(username => {
+                const status = statuses[username] || 'offline';
+                const li = document.createElement('li');
+                li.style.display = 'flex';
+                li.style.justifyContent = 'space-between';
+                li.style.alignItems = 'center';
+                li.style.padding = '8px';
+                li.style.borderBottom = '1px solid rgba(255,255,255,0.03)';
+                li.innerHTML = `<span style="font-weight:700; color:var(--primary);">${username}</span><span style="text-transform:uppercase; font-size:0.75rem; opacity:0.8;">${status}</span>`;
+                liveList.appendChild(li);
+            });
+        }
     });
 
     // Session Management
@@ -513,9 +542,34 @@ document.addEventListener('mouseover', (e) => {
 // Visibility Tracker: Tells the server if the tab is focused or backgrounded
 function emitStatus() {
     if (!socket || !socket.connected) return;
-    const status = document.visibilityState === 'visible' ? 'online' : 'idle';
-    socket.emit('heartbeat', { status: status });
+    
+    // Determine activity based on the current URL
+    let currentActivity = "Browsing";
+    const path = window.location.pathname;
+    
+    if (path.startsWith('/play/')) {
+        // Extracts game name from /play/game-name
+        const gameName = path.split('/').pop().replace(/-/g, ' ').toUpperCase();
+        currentActivity = `Playing ${gameName}`;
+    } else if (path === '/chat') {
+        currentActivity = "In Communications";
+    } else if (path === '/admin/dashboard') {
+        currentActivity = "Reviewing System Logs";
+    }
+
+    // Determine idle/online status from recent user interaction timestamp
+    const now = Date.now();
+    const isIdle = (now - lastActivityTime) > IDLE_THRESHOLD_MS;
+    const status = isIdle ? 'idle' : 'online';
+
+    socket.emit('heartbeat', {
+        activity: currentActivity,
+        status: status
+    });
 }
+
+// Ensure it runs every 30 seconds to keep "Last Seen" fresh
+setInterval(emitStatus, 30000);
 document.addEventListener('visibilitychange', emitStatus);
 if (socket) { socket.on('connect', () => { emitStatus(); if (typeof joinChannel === 'function') joinChannel(currentChannel); }); }
 
@@ -536,11 +590,34 @@ function confirmDeletion() {
     return false;
 }
 
-socket.on('mention_notification', (data) => {
-    // Wrap the arguments in curly braces to pass a single object
-    showToast({
-        title: `MENTION: ${data.channel}`, 
-        content: data.msg, // showToast expects 'content', but your socket data uses 'msg'
-        image: `https://ui-avatars.com/api/?name=${data.sender}&background=818cf8&color=fff`
+function toggleFullscreen() {
+    const iframe = document.getElementById('game-iframe');
+    if (!iframe) return;
+    try {
+        if (document.fullscreenElement) {
+            document.exitFullscreen();
+        } else if (iframe.requestFullscreen) {
+            iframe.requestFullscreen();
+        } else if (iframe.webkitRequestFullscreen) {
+            iframe.webkitRequestFullscreen();
+        } else if (iframe.mozRequestFullScreen) {
+            iframe.mozRequestFullScreen();
+        } else if (iframe.msRequestFullscreen) {
+            iframe.msRequestFullscreen();
+        }
+    } catch (e) {
+        console.warn('Fullscreen toggle failed', e);
+    }
+}
+
+if (socket) {
+    socket.on('mention_notification', (data) => {
+        // Wrap the arguments in curly braces to pass a single object
+        showToast({
+            title: `MENTION: ${data.channel}`,
+            content: data.msg || data.content || '', // showToast expects 'content'
+            image: `https://ui-avatars.com/api/?name=${data.sender}&background=818cf8&color=fff`
+        });
     });
-});
+}
+// End of main.js
