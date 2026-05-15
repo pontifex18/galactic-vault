@@ -759,3 +759,106 @@ input:checked + .theme-slider:before { transform: translateX(20px); background-c
     border-radius: 4px;
     font-family: monospace;
 }
+
+/* Mention Highlighting */
+.mention {
+    background: rgba(129, 140, 248, 0.2); /* Matches --primary */
+    color: var(--primary);
+    padding: 0 4px;
+    border-radius: 4px;
+    font-weight: 500;
+    border: 1px solid rgba(129, 140, 248, 0.3);
+}
+
+/* Toast System */
+#toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    pointer-events: none; /* Allows clicking through the container */
+}
+
+.toast {
+    pointer-events: auto; /* Re-enable clicks for the actual toast */
+    background: var(--card-bg);
+    backdrop-filter: var(--blur-std);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 320px;
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    animation: toastSlideIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.toast-img {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 2px solid var(--primary);
+}
+
+.toast-body { flex: 1; overflow: hidden; }
+
+.toast-title {
+    font-weight: 700;
+    font-size: 0.65rem;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 2px;
+}
+
+.toast-text {
+    font-size: 0.8rem;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+@keyframes toastSlideIn {
+    from { transform: translateX(120%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+/* 1. The Progress Bar Styling */
+.toast-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    background: var(--primary);
+    width: 100%;
+    /* This animates the bar shrinking over 5 seconds */
+    animation: toastProgress 5s linear forwards;
+}
+
+/* 2. The Missing Outgoing Animation */
+.toast.outgoing {
+    animation: toastSlideOut 0.5s ease-in forwards;
+}
+
+/* 3. The Animation Keyframes */
+@keyframes toastProgress {
+    from { width: 100%; }
+    to { width: 0%; }
+}
+
+@keyframes toastSlideOut {
+    from { 
+        transform: translateX(0); 
+        opacity: 1; 
+    }
+    to { 
+        transform: translateX(120%); 
+        opacity: 0; 
+    }
+}

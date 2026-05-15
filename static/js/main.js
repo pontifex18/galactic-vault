@@ -175,13 +175,14 @@ function addMessage(data) {
     userDiv.textContent = `${data.user} [${data.time}]`;
     
     const msgDiv = document.createElement('div');
+    
+    // Highlight @mentions: wraps @name in a <span class="mention">
+    const processedMsg = data.msg.replace(/@(\w+)/g, '<span class="mention">@$1</span>');
+
     if (typeof marked !== 'undefined') {
-        // Use marked.parse directly. 
-        // If quotes still appear as &quot;, ensure your server isn't 
-        // pre-escaping the string before sending it over the socket.
-        msgDiv.innerHTML = marked.parse(data.msg); 
+        msgDiv.innerHTML = marked.parse(processedMsg); 
     } else {
-        msgDiv.textContent = data.msg;
+        msgDiv.innerHTML = processedMsg;
     }
     
     div.appendChild(userDiv);
@@ -451,30 +452,24 @@ setInterval(function() {
 }, 60000); // 60,000ms = 1 minute
 
 
-function showToast(title, message, iconUrl = 'https://ui-avatars.com/api/?name=V&background=818cf8&color=fff') {
+function showToast({ title, content, image }) {
     const container = document.getElementById('toast-container');
     if (!container) return;
+    const highlightedContent = content.replace(/@(\w+)/g, '<span class="mention">@$1</span>');
 
     const toast = document.createElement('div');
     toast.className = 'toast';
-
     toast.innerHTML = `
-        <img src="${iconUrl}" class="toast-img" alt="icon">
-        <div class="toast-content">
+        <img src="${image}" class="toast-img">
+        <div class="toast-body">
             <div class="toast-title">${title}</div>
-            <div class="toast-text">${message}</div>
+            <div class="toast-text">${highlightedContent}</div>
         </div>
-        <div class="toast-progress"></div>
-    `;
+        <div class="toast-bar"></div> `;
 
     container.appendChild(toast);
 
-    // This handles the automatic slide-out after 5 seconds
-    const autoClose = setTimeout(() => {
-        closeToast(toast);
-    }, 5000);
-
-    // This handles the slide-out if the user clicks it early
+    const autoClose = setTimeout(() => closeToast(toast), 5000);
     toast.onclick = () => {
         clearTimeout(autoClose);
         closeToast(toast);
@@ -540,3 +535,12 @@ function confirmDeletion() {
     }
     return false;
 }
+
+socket.on('mention_notification', (data) => {
+    // Wrap the arguments in curly braces to pass a single object
+    showToast({
+        title: `MENTION: ${data.channel}`, 
+        content: data.msg, // showToast expects 'content', but your socket data uses 'msg'
+        image: `https://ui-avatars.com/api/?name=${data.sender}&background=818cf8&color=fff`
+    });
+});

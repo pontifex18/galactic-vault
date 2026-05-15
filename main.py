@@ -1,7 +1,7 @@
 #main.py
 import os
 import socket
-import html
+import re
 import sqlite3
 import json
 import random
@@ -568,6 +568,8 @@ def handle_connect():
     # Send channel-specific history and broadcast pilot list
     emit('chat_history', load_chat(default_channel))
     broadcast_admin_update()
+    if 'user_id' in session:
+        join_room(f"user_{session['user_id']}")
 
 
 @socketio.on('join_channel')
@@ -611,20 +613,15 @@ def handle_message(data):
         return
     user_id = session.get('user_id', 'Unknown Pilot')
     
-    # Determine admin status
     admin_config = config_data.get('admin_user', 'admin')
     allowed_admins = [admin_config] if isinstance(admin_config, str) else admin_config
     is_admin = user_id in allowed_admins
     
-    # Determine channel
     sid = getattr(request, 'sid', None)
     channel = data.get('channel') or sid_channels.get(sid) or 'General'
 
-    # --- NEW SECURITY CHECK ---
     if channel.lower() == 'announcements' and not is_admin:
-        # Prevent non-admins from sending messages to this channel
         return 
-    # ---------------------------
 
     limit = 5000 if is_admin else config_data.get('max_message_size', 512)
     raw_msg = str(data.get('msg', ''))
@@ -633,10 +630,21 @@ def handle_message(data):
     msg_data = {'user': user_id, 'msg': safe_msg, 'time': datetime.now().strftime("%H:%M"), 'channel': channel}
     save_message(msg_data)
     
+    # Send message to the channel as normal
     try:
         socketio.emit('message', msg_data, to=channel)
     except Exception:
         socketio.emit('message', msg_data)
+
+    # --- MENTION NOTIFICATION LOGIC ---
+    mentions = re.findall(r'@(\w+)', safe_msg)
+    for mentioned_user in set(mentions):
+        if mentioned_user != user_id: # Don't notify yourself
+            socketio.emit('mention_notification', {
+                'sender': user_id,
+                'msg': safe_msg,
+                'channel': channel
+            }, to=f"user_{mentioned_user}")
 
 @app.route('/games/<path:filename>')
 def serve_game(filename):
