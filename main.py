@@ -611,28 +611,32 @@ def handle_message(data):
         return
     user_id = session.get('user_id', 'Unknown Pilot')
     
-    # Determine max length based on user type
+    # Determine admin status
     admin_config = config_data.get('admin_user', 'admin')
     allowed_admins = [admin_config] if isinstance(admin_config, str) else admin_config
+    is_admin = user_id in allowed_admins
     
-    limit = 5000 if user_id in allowed_admins else config_data.get('max_message_size', 512)
-    
+    # Determine channel
+    sid = getattr(request, 'sid', None)
+    channel = data.get('channel') or sid_channels.get(sid) or 'General'
+
+    # --- NEW SECURITY CHECK ---
+    if channel.lower() == 'announcements' and not is_admin:
+        # Prevent non-admins from sending messages to this channel
+        return 
+    # ---------------------------
+
+    limit = 5000 if is_admin else config_data.get('max_message_size', 512)
     raw_msg = str(data.get('msg', ''))
     safe_msg = html.escape(raw_msg[:limit])
-    sid = getattr(request, 'sid', None)
-    # Determine channel: prefer explicit in payload, then SID mapping, fall back to General
-    channel = data.get('channel') or sid_channels.get(sid) or 'General'
+    
     msg_data = {'user': user_id, 'msg': safe_msg, 'time': datetime.now().strftime("%H:%M"), 'channel': channel}
     save_message(msg_data)
-    # Emit only to clients in the same channel room
+    
     try:
-        socketio.emit('message', msg_data, **{'to': channel})
+        socketio.emit('message', msg_data, to=channel)
     except Exception:
-        try:
-            socketio.emit('message', msg_data, **{'broadcast': True})
-        except Exception:
-            # Final fallback: best-effort emit
-            socketio.emit('message', msg_data)
+        socketio.emit('message', msg_data)
 
 @app.route('/games/<path:filename>')
 def serve_game(filename):

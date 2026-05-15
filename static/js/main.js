@@ -308,17 +308,32 @@ function joinChannel(name) {
     if (!name) return;
     currentChannel = name;
     localStorage.setItem('gv_selected_channel', name);
+    
     // Update UI active state
     if (UI.channelList) {
         const cards = Array.from(UI.channelList.querySelectorAll('.channel-card'));
-        cards.forEach(c => c.classList.toggle('active', c.querySelector('.channel-name') && c.querySelector('.channel-name').textContent.trim() === name));
+        cards.forEach(c => {
+            const channelName = c.querySelector('.channel-name').textContent.trim();
+            c.classList.toggle('active', channelName === name);
+        });
     }
-    // Inform server and request history for this channel
+
+    // --- ADMIN PERMISSION CHECK ---
+    if (UI.chatInput) {
+        const isAdmin = (window.CURRENT_USER === window.ADMIN_NAME);
+        
+        if (name.toLowerCase() === 'announcements' && !isAdmin) {
+            UI.chatInput.style.display = 'none';
+            UI.chatInput.placeholder = "Read-only channel.";
+        } else {
+            UI.chatInput.style.display = 'block';
+            UI.chatInput.placeholder = `Transmit message to ${name}...`;
+        }
+    }
+
     if (socket && socket.connected) {
         socket.emit('join_channel', { channel: name });
     }
-    // Update input placeholder to reflect channel
-    if (UI.chatInput) UI.chatInput.setAttribute('placeholder', `Transmit message to ${name}...`);
 }
 
 /* ==========================================================================
