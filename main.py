@@ -628,7 +628,7 @@ def handle_message(data):
 
     limit = 5000 if is_admin else config_data.get('max_message_size', 512)
     raw_msg = str(data.get('msg', ''))
-    safe_msg = html.escape(raw_msg[:limit])
+    safe_msg = raw_msg[:limit]
     
     msg_data = {'user': user_id, 'msg': safe_msg, 'time': datetime.now().strftime("%H:%M"), 'channel': channel}
     save_message(msg_data)

@@ -16,6 +16,14 @@ const AppState = {
     cachedFavNames: null
 };
 
+if (typeof marked !== 'undefined') {
+    marked.setOptions({
+        headerIds: false,
+        mangle: false,
+        sanitize: false // Allow marked to parse raw quotes into HTML entities correctly
+    });
+}
+
 // Global Socket reference
 let socket = (typeof io !== 'undefined') ? io() : null;
 
@@ -167,7 +175,14 @@ function addMessage(data) {
     userDiv.textContent = `${data.user} [${data.time}]`;
     
     const msgDiv = document.createElement('div');
-    msgDiv.textContent = data.msg;
+    if (typeof marked !== 'undefined') {
+        // Use marked.parse directly. 
+        // If quotes still appear as &quot;, ensure your server isn't 
+        // pre-escaping the string before sending it over the socket.
+        msgDiv.innerHTML = marked.parse(data.msg); 
+    } else {
+        msgDiv.textContent = data.msg;
+    }
     
     div.appendChild(userDiv);
     div.appendChild(msgDiv);

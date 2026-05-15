@@ -716,8 +716,46 @@ input:checked + .theme-slider:before { transform: translateX(20px); background-c
     line-height: 1.4;
 }
 
-/* Ensure the message items preserve the new lines when displayed */
+/* Update the message content container */
 .msg-item div:last-child {
-    white-space: pre-wrap; /* This is critical to actually show the new lines */
+    white-space: normal; /* marked handles line breaks via <p> tags */
     word-wrap: break-word;
+}
+
+/* Style Markdown elements inside the chat */
+.msg-item div:last-child p {
+    margin: 0 0 8px 0; /* Control spacing between paragraphs */
+}
+
+.msg-item div:last-child p:last-child {
+    margin-bottom: 0;
+}
+
+.msg-item div:last-child code {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 4px;
+    border-radius: 4px;
+    font-family: 'Courier New', Courier, monospace;
+}
+
+.msg-item div:last-child pre {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 10px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 10px 0;
+}
+
+.msg-item div:last-child ul, 
+.msg-item div:last-child ol {
+    padding-left: 20px;
+    margin: 8px 0;
+}
+
+/* Add this to vault.css if not already complete */
+.msg-item div:last-child code {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 4px;
+    border-radius: 4px;
+    font-family: monospace;
 }
