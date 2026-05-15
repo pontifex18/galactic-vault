@@ -354,11 +354,25 @@ function joinChannel(name) {
             history.forEach(msg => addMessage(msg));
         });
 
-        UI.chatInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && UI.chatInput.value.trim()) {
-                socket.emit('message', { msg: UI.chatInput.value, channel: currentChannel });
-                UI.chatInput.value = '';
+        // Locate the chat input listener inside the socket block in main.js
+        UI.chatInput.addEventListener('keydown', (e) => {
+            // 1. Check if Enter was pressed WITHOUT the Shift key
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault(); // Prevent adding a new line on send
+                
+                const message = UI.chatInput.value.trim();
+                if (message) {
+                    socket.emit('message', { msg: message, channel: currentChannel });
+                    UI.chatInput.value = '';
+                    UI.chatInput.style.height = 'auto'; // Reset height after sending
+                }
             }
+        });
+
+        // 2. Add Auto-Resize Logic (Optional but recommended for textareas)
+        UI.chatInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
         });
     }
 

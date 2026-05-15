@@ -700,3 +700,24 @@ input:checked + .theme-slider:before { transform: translateX(20px); background-c
 .status-idle {
     color: #fbbf24 !important;
 }
+
+#chat-input-area textarea {
+    width: 100%;
+    padding: 12px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.85rem;
+    resize: none; /* Prevents user from manual resizing */
+    max-height: 150px; /* Prevents the box from getting too tall */
+    overflow-y: auto;
+    line-height: 1.4;
+}
+
+/* Ensure the message items preserve the new lines when displayed */
+.msg-item div:last-child {
+    white-space: pre-wrap; /* This is critical to actually show the new lines */
+    word-wrap: break-word;
+}
