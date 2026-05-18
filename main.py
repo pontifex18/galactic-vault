@@ -925,19 +925,28 @@ def chat():
         return redirect(url_for('login'))
     
     conn = get_db_connection()
-    # Fetch all registered users
-    all_users = conn.execute('SELECT username FROM users').fetchall()
+    # Fetch both username and role in a single optimized batch query
+    all_users = conn.execute('SELECT username, role FROM users').fetchall()
+    
+    admin_config = config_data.get('admin_user', 'admin')
+    allowed_admins = [admin_config] if isinstance(admin_config, str) else admin_config
     
     pilots = []
-    # Build a set of currently online usernames from socket pings
     current_online = set(data['user'] for data in online_pings.values())
     for u in all_users:
         uname = u['username']
         is_online = uname in current_online
+        
+        # Determine role cleanly without extra database round-trips
+        if uname in allowed_admins:
+            urole = 'Owner'
+        else:
+            urole = u['role'] if u['role'] else 'Crew'
+            
         pilots.append({
             'username': uname,
             'online': is_online,
-            'role': get_user_role(uname)
+            'role': urole
         })
     
     # Sort: Online (True/1) comes before Offline (False/0)
