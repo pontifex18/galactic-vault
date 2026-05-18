@@ -88,12 +88,11 @@
             <div class="deck-section pilots-column">
                 <h1>ACTIVE PILOTS</h1>
                 <div id="pilot-list">
-                    {% for pilot in pilots %}
+                {% for pilot in pilots %}
                     <div class="pilot-card" data-username="{{ pilot.username }}">
                         <div class="pilot-info">
-                            <img src="https://ui-avatars.com/api/?name={{ pilot.username }}&background=random&color=fff&size=32" 
-                                class="pilot-avatar" alt="avatar">
-                            <span class="pilot-name">{{ pilot.username }}</span>
+                            <img src="https://ui-avatars.com/api/?name={{ pilot.username }}&background=random&color=fff&size=32" class="pilot-avatar" alt="avatar">
+                            <span class="pilot-name role-{{ pilot.role|lower }}">{{ pilot.username }}</span>
                         </div>
                         <span class="status-dot {{ 'online' if pilot.online else 'offline' }}"></span>
                         
@@ -101,8 +100,8 @@
                             <div class="hover-profile-header">
                                 <img src="https://ui-avatars.com/api/?name={{ pilot.username }}&background=random&color=fff&size=48" class="hover-avatar" alt="avatar">
                                 <div>
-                                    <div class="hover-username">{{ pilot.username }}</div>
-                                    <div class="hover-rank">Vanguard Pilot</div>
+                                    <div class="hover-username role-{{ pilot.role|lower }}">{{ pilot.username }}</div>
+                                    <div class="hover-rank">{{ pilot.role }}</div>
                                 </div>
                             </div>
                             <div class="hover-profile-stats">

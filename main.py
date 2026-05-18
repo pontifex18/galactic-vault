@@ -936,7 +936,8 @@ def chat():
         is_online = uname in current_online
         pilots.append({
             'username': uname,
-            'online': is_online
+            'online': is_online,
+            'role': get_user_role(uname)
         })
     
     # Sort: Online (True/1) comes before Offline (False/0)
