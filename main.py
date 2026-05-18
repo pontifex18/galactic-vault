@@ -249,14 +249,14 @@ def load_chat(channel='General'):
     conn = get_db_connection()
     if channel:
         rows = conn.execute('''
-            SELECT chat.user, chat.msg, chat.time, chat.channel, COALESCE(users.role, 'Crew') as role 
+            SELECT chat.id, chat.user, chat.msg, chat.time, chat.channel, COALESCE(users.role, 'Crew') as role 
             FROM chat 
             LEFT JOIN users ON chat.user = users.username 
             WHERE chat.channel = ? ORDER BY chat.id ASC
         ''', (channel,)).fetchall()
     else:
         rows = conn.execute('''
-            SELECT chat.user, chat.msg, chat.time, chat.channel, COALESCE(users.role, 'Crew') as role 
+            SELECT chat.id, chat.user, chat.msg, chat.time, chat.channel, COALESCE(users.role, 'Crew') as role 
             FROM chat 
             LEFT JOIN users ON chat.user = users.username 
             ORDER BY chat.id ASC
@@ -276,12 +276,14 @@ def load_chat(channel='General'):
 def save_message(msg_data):
     conn = get_db_connection()
     channel = msg_data.get('channel', 'General')
-    conn.execute('INSERT INTO chat (user, msg, time, channel) VALUES (?, ?, ?, ?)',
-                 (msg_data['user'], msg_data['msg'], msg_data['time'], channel))
+    cursor = conn.execute('INSERT INTO chat (user, msg, time, channel) VALUES (?, ?, ?, ?)',
+                          (msg_data['user'], msg_data['msg'], msg_data['time'], channel))
+    msg_id = cursor.lastrowid
     # Respect max_message_count from config
     max_count = config_data.get('max_message_count', 50)
     conn.execute(f"DELETE FROM chat WHERE id NOT IN (SELECT id FROM chat ORDER BY id DESC LIMIT {max_count})")
     conn.commit()
+    return msg_id
 
 # --- GAME DATA HELPERS ---
 
@@ -601,6 +603,39 @@ def admin_action(action, username):
     
     return redirect(url_for('admin_dashboard'))
 
+@app.route('/admin/delete-message', methods=['POST'])
+def delete_message():
+    admin_config = config_data.get('admin_user', 'admin')
+    allowed_admins = [admin_config] if isinstance(admin_config, str) else admin_config
+    if session.get('user_id') not in allowed_admins:
+        return jsonify({"error": "Unauthorized"}), 403
+
+    payload = request.get_json(silent=True) or request.form
+    msg_id = payload.get('id')
+    if not msg_id:
+        return jsonify({"error": "Invalid message id."}), 400
+
+    try:
+        msg_id = int(msg_id)
+    except ValueError:
+        return jsonify({"error": "Invalid message id."}), 400
+
+    conn = get_db_connection()
+    existing = conn.execute('SELECT channel FROM chat WHERE id = ?', (msg_id,)).fetchone()
+    if not existing:
+        return jsonify({"error": "Message not found."}), 404
+
+    channel = existing['channel']
+    conn.execute('DELETE FROM chat WHERE id = ?', (msg_id,))
+    conn.commit()
+
+    try:
+        socketio.emit('delete_message', {'id': msg_id, 'channel': channel}, broadcast=True)
+    except Exception:
+        app.logger.exception('Error broadcasting deleted chat message')
+
+    return jsonify({"status": "success", "id": msg_id})
+
 # --- SOCKETS ---
 
 def broadcast_admin_update():
@@ -757,7 +792,8 @@ def handle_message(data):
         'time': datetime.now().strftime("%H:%M"), 
         'channel': channel
     }
-    save_message(msg_data)
+    msg_id = save_message(msg_data)
+    msg_data['id'] = msg_id
     
     # Send message to the channel as normal
     try:
@@ -1013,4 +1049,3 @@ if __name__ == '__main__':
     
     print(f"\n🚀 SERVER STARTING\n🏠 Local Access: http://127.0.0.1:{PORT}\n🌐 LAN Access:   http://{IP}:{PORT}\n")
     socketio.run(app, host=HOST, port=PORT, debug=DEBUG)
-    

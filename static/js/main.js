@@ -65,6 +65,7 @@ const UI = {
     chatArrow: document.getElementById('chat-arrow'),
     channelList: document.getElementById('channel-list'),
     pilotList: document.getElementById('pilot-list'),
+    contextMenu: document.getElementById('chat-context-menu'),
     themeToggle: document.getElementById('theme-toggle')
 };
 
@@ -197,6 +198,12 @@ function addMessage(data) {
     // Create the main container for this single message row
     const msgItem = document.createElement('div');
     msgItem.className = 'msg-item';
+    if (data.id) {
+        msgItem.dataset.msgId = data.id;
+    }
+    if (data.channel) {
+        msgItem.dataset.channel = data.channel;
+    }
 
     // 1. Determine the correct CSS role class (defaults to 'role-crew')
     const userRole = data.role ? data.role.toLowerCase() : 'crew';
@@ -228,6 +235,46 @@ function addMessage(data) {
     // Append to chat box and auto-scroll down
     UI.chatMsgs.appendChild(msgItem);
     UI.chatMsgs.scrollTop = UI.chatMsgs.scrollHeight;
+}
+
+function hideContextMenu() {
+    if (!UI.contextMenu) return;
+    UI.contextMenu.classList.add('hidden');
+}
+
+function showContextMenu(x, y, msgId, channel) {
+    if (!UI.contextMenu) return;
+    const deleteButton = document.getElementById('delete-message-action');
+    if (!deleteButton) return;
+    UI.contextMenu.style.left = `${x}px`;
+    UI.contextMenu.style.top = `${y}px`;
+    UI.contextMenu.classList.remove('hidden');
+    deleteButton.dataset.msgId = msgId;
+    deleteButton.dataset.channel = channel;
+}
+
+function deleteChatMessage(msgId, channel) {
+    if (!msgId) return;
+    const headers = { 'Content-Type': 'application/json' };
+    if (CSRF_TOKEN) headers['X-CSRFToken'] = CSRF_TOKEN;
+
+    fetch('/admin/delete-message', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ id: msgId, channel })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data && data.status === 'success') {
+            hideContextMenu();
+            showToast({ title: 'Message deleted', content: 'The message was removed for all pilots.' });
+        } else {
+            showToast({ title: 'Delete failed', content: data.error || 'Unable to delete this message.' });
+        }
+    })
+    .catch(() => {
+        showToast({ title: 'Delete failed', content: 'Unable to reach the server.' });
+    });
 }
 
 function toggleChat() {
@@ -358,6 +405,31 @@ document.addEventListener("DOMContentLoaded", function() {
         // Apply persisted selection or default
         setActiveCard(currentChannel);
     }
+
+    // Right-click support for admin delete actions
+    const adminList = Array.isArray(window.ADMIN_NAME) ? window.ADMIN_NAME : (window.ADMIN_NAME ? [window.ADMIN_NAME] : []);
+    const isAdmin = adminList.includes(window.CURRENT_USER);
+    if (UI.chatMsgs && isAdmin) {
+        UI.chatMsgs.addEventListener('contextmenu', (event) => {
+            const msgItem = event.target.closest('.msg-item');
+            if (!msgItem || !msgItem.dataset.msgId) return;
+            event.preventDefault();
+            showContextMenu(event.pageX, event.pageY, msgItem.dataset.msgId, msgItem.dataset.channel);
+        });
+    }
+
+    document.addEventListener('click', (event) => {
+        if (UI.contextMenu && !event.target.closest('#chat-context-menu')) {
+            hideContextMenu();
+        }
+    });
+
+    const deleteAction = document.getElementById('delete-message-action');
+    if (deleteAction) {
+        deleteAction.addEventListener('click', () => {
+            deleteChatMessage(deleteAction.dataset.msgId, deleteAction.dataset.channel);
+        });
+    }
 });
 
 function joinChannel(name) {
@@ -412,6 +484,15 @@ function joinChannel(name) {
         socket.on('chat_history', (history) => {
             UI.chatMsgs.innerHTML = '';
             history.forEach(msg => addMessage(msg));
+        });
+
+        socket.on('delete_message', (data) => {
+            if (!data || !data.id) return;
+            const selector = `[data-msg-id="${data.id}"]`;
+            const existing = UI.chatMsgs.querySelector(selector);
+            if (existing) {
+                existing.remove();
+            }
         });
 
         // Locate the chat input listener inside the socket block in main.js

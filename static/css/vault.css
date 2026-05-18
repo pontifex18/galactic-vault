@@ -382,6 +382,38 @@ input[type="text"] {
     text-align: left; 
 }
 
+.context-menu {
+    position: fixed;
+    z-index: 120;
+    min-width: 180px;
+    border-radius: 14px;
+    background: rgba(10, 14, 25, 0.98);
+    border: 1px solid rgba(255,255,255,0.12);
+    box-shadow: 0 18px 40px rgba(0,0,0,0.35);
+    overflow: hidden;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    opacity: 1;
+}
+
+.context-menu.hidden {
+    display: none;
+}
+
+.context-menu button {
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    padding: 12px 16px;
+    text-align: left;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.context-menu button:hover {
+    background: rgba(129, 140, 248, 0.12);
+}
+
 /* ==========================================================================
    REFINED UNIFIED DECK (Alignment & Typography Fix)
    ========================================================================== */

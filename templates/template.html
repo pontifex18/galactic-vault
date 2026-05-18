@@ -14,20 +14,23 @@
     window.CURRENT_USER = {{ session.get('user_id') | tojson }};
     </script>
 </head>
-<div id="toast-container"></div>
-{% if session.get('user_id') and view != 'chat' and show_comm_popup %}
-<div id="chat-container">
-    <div id="chat-header" onclick="toggleChat()">
-        <span style="font-size: 0.7rem; letter-spacing: 0.1em; font-weight: 700;">COMM-LINK</span>
-        <span id="chat-arrow">▲</span>
-    </div>
-    <div id="chat-messages"></div>
-    <div id="chat-input-area">
-        <textarea id="chat-input" placeholder="Transmit message..." autocomplete="off" rows="1"></textarea>
-    </div>
-</div>
-{% endif %}
 <body class="{% if view == 'login' %}login-view{% endif %}">
+    <div id="toast-container"></div>
+    <div id="chat-context-menu" class="context-menu hidden">
+        <button id="delete-message-action" type="button">Delete Message</button>
+    </div>
+    {% if session.get('user_id') and view != 'chat' and show_comm_popup %}
+    <div id="chat-container">
+        <div id="chat-header" onclick="toggleChat()">
+            <span style="font-size: 0.7rem; letter-spacing: 0.1em; font-weight: 700;">COMM-LINK</span>
+            <span id="chat-arrow">▲</span>
+        </div>
+        <div id="chat-messages"></div>
+        <div id="chat-input-area">
+            <textarea id="chat-input" placeholder="Transmit message..." autocomplete="off" rows="1"></textarea>
+        </div>
+    </div>
+    {% endif %}
     <div class="bg-glow"></div>
 
     {% if view != "login" %}
