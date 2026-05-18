@@ -118,7 +118,9 @@
                                 </div>
                                 <div class="hover-stat">
                                     <span>Activity:</span> 
-                                    <span>{{ (pilot.activity if pilot.activity else 'BROWSING') | title }}</span>
+                                    <span>
+                                        {{ 'Inactive' if not pilot.online else ((pilot.activity if pilot.activity else 'BROWSING') | title) }}
+                                    </span>
                                 </div>
                             </div>
                         </div>
@@ -314,6 +316,42 @@
         </div>
         {% endfor %}
     </div>
+    <div class="admin-section" style="margin-top: 20px; padding: 15px; border: 1px solid #333;">
+    <h3>User Rank & Role Management</h3>
+    <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr style="text-align: left; border-bottom: 2px solid #555;">
+                <th style="padding: 8px;">Pilot / User</th>
+                <th style="padding: 8px;">Assigned Rank</th>
+                <th style="padding: 8px;">Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for u in all_users %}
+            <tr style="border-bottom: 1px solid #222;">
+                <td style="padding: 8px;">{{ u.username }}</td>
+                <td style="padding: 8px;"><strong>{{ u.role }}</strong></td>
+                <td style="padding: 8px;">
+                    {% if u.role != 'Owner' %}
+                    <form action="{{ url_for('change_role') }}" method="POST" style="display:inline;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="username" value="{{ u.username }}">
+                        <select name="role" onchange="this.form.submit()" style="padding: 4px; background: #111; color: #fff; border: 1px solid #444;">
+                            <option value="Crew" {% if u.role == 'Crew' %}selected{% endif %}>Crew</option>
+                            <option value="Sergeant" {% if u.role == 'Sergeant' %}selected{% endif %}>Sergeant</option>
+                            <option value="General" {% if u.role == 'General' %}selected{% endif %}>General</option>
+                            <option value="Captain" {% if u.role == 'Captain' %}selected{% endif %}>Captain</option>
+                        </select>
+                    </form>
+                    {% else %}
+                    <span style="color: #ff4500; font-style: italic;">Immutable System Admin</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 </div>
 
 <form id="promote-form" action="/admin/promote-report" method="POST" style="display: none;">

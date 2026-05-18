@@ -1,5 +1,6 @@
+/*--static/css/vault.css--*/
 /* ==========================================================================
-   1. VARIABLES & RESET (SUPERNOVA THEME)
+   1. VARIABLES & RESET
    ========================================================================== */
 :root {
     /* Dark Mode (Default) */
@@ -861,4 +862,29 @@ input:checked + .theme-slider:before { transform: translateX(20px); background-c
         transform: translateX(120%); 
         opacity: 0; 
     }
+}
+
+/* Custom Rank/Role Username Color Variables */
+.role-owner {
+    color: #ff4500 !important; /* Crimson Red/Orange for System Owner */
+    font-weight: bold;
+    text-shadow: 0 0 4px rgba(255, 69, 0, 0.4);
+}
+
+.role-captain {
+    color: #00bfff !important; /* Deep Sky Cyan Blue for Captain */
+    font-weight: bold;
+}
+
+.role-general {
+    color: #9370db !important; /* Galactic Violet Purple for General */
+    font-weight: bold;
+}
+
+.role-sergeant {
+    color: #32cd32 !important; /* Vivid Emerald Green for Sergeant */
+}
+
+.role-crew {
+    color: #b0c4de !important; /* Light Steel/Silver Blue for default Crew members */
 }

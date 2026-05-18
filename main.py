@@ -1,4 +1,4 @@
-#main.py
+#--main.py--
 import os
 import socket
 import re
@@ -143,6 +143,9 @@ def init_db():
     # Add the 'channel' column to 'chat' if it's an older DB
     add_column_if_missing('chat', 'channel', "TEXT DEFAULT 'General'")
 
+    # Add the 'role' column to 'users' defaulting to 'Crew'
+    add_column_if_missing('users', 'role', "TEXT DEFAULT 'Crew'")
+
     # Add the 'activity' column to 'active_sessions'
     add_column_if_missing('active_sessions', 'activity', "TEXT DEFAULT 'Browsing'")
 
@@ -220,13 +223,51 @@ def check_credentials(username, password):
 
 # --- CHAT HELPERS ---
 
+def get_user_role(username):
+    """Fetches a user's role. Enforces 'Owner' status for configured administrators."""
+    admin_config = config_data.get('admin_user', 'admin')
+    allowed_admins = [admin_config] if isinstance(admin_config, str) else admin_config
+    if username in allowed_admins:
+        return 'Owner'
+    try:
+        if 'db' in g:
+            row = g.db.execute('SELECT role FROM users WHERE username = ?', (username,)).fetchone()
+            return row['role'] if (row and row['role']) else 'Crew'
+    except Exception:
+        pass
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute('SELECT role FROM users WHERE username = ?', (username,)).fetchone()
+    conn.close()
+    return row['role'] if (row and row['role']) else 'Crew'
+
 def load_chat(channel='General'):
     conn = get_db_connection()
     if channel:
-        rows = conn.execute('SELECT user, msg, time, channel FROM chat WHERE channel = ? ORDER BY id ASC', (channel,)).fetchall()
+        rows = conn.execute('''
+            SELECT chat.user, chat.msg, chat.time, chat.channel, COALESCE(users.role, 'Crew') as role 
+            FROM chat 
+            LEFT JOIN users ON chat.user = users.username 
+            WHERE chat.channel = ? ORDER BY chat.id ASC
+        ''', (channel,)).fetchall()
     else:
-        rows = conn.execute('SELECT user, msg, time, channel FROM chat ORDER BY id ASC').fetchall()
-    return [dict(row) for row in rows]
+        rows = conn.execute('''
+            SELECT chat.user, chat.msg, chat.time, chat.channel, COALESCE(users.role, 'Crew') as role 
+            FROM chat 
+            LEFT JOIN users ON chat.user = users.username 
+            ORDER BY chat.id ASC
+        ''').fetchall()
+    
+    admin_config = config_data.get('admin_user', 'admin')
+    allowed_admins = [admin_config] if isinstance(admin_config, str) else admin_config
+    
+    chat_list = []
+    for row in rows:
+        d = dict(row)
+        if d['user'] in allowed_admins:
+            d['role'] = 'Owner'
+        chat_list.append(d)
+    return chat_list
 
 def save_message(msg_data):
     conn = get_db_connection()
@@ -478,9 +519,32 @@ def toggle_favorite():
 
 # --- ADMIN ROUTES ---
 
+@app.route('/admin/change-role', methods=['POST'])
+def change_role():
+    admin_config = config_data.get('admin_user', 'admin')
+    allowed_admins = [admin_config] if isinstance(admin_config, str) else admin_config
+    if session.get('user_id') not in allowed_admins:
+        return jsonify({"error": "Unauthorized"}), 403
+
+    username = request.form.get('username', '').strip()
+    new_role = request.form.get('role', '').strip()
+    
+    if new_role not in ['Captain', 'General', 'Sergeant', 'Crew']:
+        flash("ERROR: Invalid role selection.", "error")
+        return redirect(url_for('admin_dashboard'))
+
+    if username in allowed_admins:
+        flash("ERROR: Cannot alter an Owner account.", "error")
+        return redirect(url_for('admin_dashboard'))
+
+    conn = get_db_connection()
+    conn.execute('UPDATE users SET role = ? WHERE username = ?', (new_role, username))
+    conn.commit()
+    flash(f"Role for {username} updated to {new_role}.", "success")
+    return redirect(url_for('admin_dashboard'))
+
 @app.route('/admin/dashboard')
 def admin_dashboard():
-    # Use the admin_user defined in config.toml
     admin_config = config_data.get('admin_user', 'admin')
     allowed_admins = [admin_config] if isinstance(admin_config, str) else admin_config
 
@@ -490,20 +554,24 @@ def admin_dashboard():
     
     conn = get_db_connection()
     pending_requests = conn.execute('SELECT * FROM requests').fetchall()
-    
-    # Fetch user reports and active known issues
     user_reports = conn.execute('SELECT * FROM issues ORDER BY timestamp DESC').fetchall()
     current_known = conn.execute('SELECT * FROM known_issues').fetchall()
     
+    # Query all users to list in the management terminal
+    all_users = conn.execute('SELECT username, role FROM users').fetchall()
+    users_list = []
+    for u in all_users:
+        uname = u['username']
+        urole = 'Owner' if uname in allowed_admins else (u['role'] or 'Crew')
+        users_list.append({'username': uname, 'role': urole})
+    
     requests_dict = {row['username']: dict(row) for row in pending_requests}
-
-    # Build current online pilots list from socket pings
     current_online = list(set(data['user'] for data in online_pings.values()))
 
     return render_template('template.html', view="admin", title="Admin Terminal", 
                            header="System Control", pending_requests=requests_dict,
                            active_pilots=current_online, user_reports=user_reports, 
-                           current_known=current_known)
+                           current_known=current_known, all_users=users_list)
 
 @app.route('/admin/action/<action>/<username>', methods=['POST'])
 def admin_action(action, username):
@@ -674,7 +742,14 @@ def handle_message(data):
     raw_msg = str(data.get('msg', ''))
     safe_msg = raw_msg[:limit]
     
-    msg_data = {'user': user_id, 'msg': safe_msg, 'time': datetime.now().strftime("%H:%M"), 'channel': channel}
+    user_role = get_user_role(user_id)
+    msg_data = {
+        'user': user_id, 
+        'role': user_role,  # Added role injection
+        'msg': safe_msg, 
+        'time': datetime.now().strftime("%H:%M"), 
+        'channel': channel
+    }
     save_message(msg_data)
     
     # Send message to the channel as normal

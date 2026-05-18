@@ -1,6 +1,22 @@
+//--satic/js/main.js--
 /* ==========================================================================
    1. GLOBAL CONFIGURATION & STATE
    ========================================================================== */
+
+// Utility to prevent HTML injection and DOM-based XSS attacks
+function escapeHTML(str) {
+    if (!str) return '';
+    return str.replace(/[&<>"']/g, (match) => {
+        const key = {
+            //'&': '&amp;',
+            //'<': '&lt;',
+            //'>': '&gt;',
+            //'"': '&quot;',
+            //"'": '&#039;'
+        };
+        return key[match];
+    });
+}
 
 // Read CSRF token injected by server into a meta tag
 const CSRF_TOKEN = (() => {
@@ -177,27 +193,40 @@ function loadMoreGames() {
 // Chat Functionality
 function addMessage(data) {
     if (!UI.chatMsgs) return;
-    const div = document.createElement('div');
-    div.className = 'msg-item';
-    
-    const userDiv = document.createElement('div');
-    userDiv.className = 'msg-user';
-    userDiv.textContent = `${data.user} [${data.time}]`;
-    
-    const msgDiv = document.createElement('div');
-    
-    // Highlight @mentions: wraps @name in a <span class="mention">
-    const processedMsg = data.msg.replace(/@(\w+)/g, '<span class="mention">@$1</span>');
 
-    if (typeof marked !== 'undefined') {
-        msgDiv.innerHTML = marked.parse(processedMsg); 
-    } else {
-        msgDiv.innerHTML = processedMsg;
-    }
+    // Create the main container for this single message row
+    const msgItem = document.createElement('div');
+    msgItem.className = 'msg-item';
+
+    // 1. Determine the correct CSS role class (defaults to 'role-crew')
+    const userRole = data.role ? data.role.toLowerCase() : 'crew';
+    const roleClass = `role-${userRole}`;
+
+    // 2. Format the user header section cleanly and securely
+    const cleanUser = escapeHTML(data.user || 'Unknown');
+    const displayTime = data.time ? ` [${data.time}]` : '';
     
-    div.appendChild(userDiv);
-    div.appendChild(msgDiv);
-    UI.chatMsgs.appendChild(div);
+    // Build the user label using the rank class for custom colors
+    const userHeaderHTML = `<span class="${roleClass}" style="font-weight: 700; margin-right: 5px;">${cleanUser}</span><span style="color: var(--text-muted); font-size: 0.75rem;">${displayTime}:</span>`;
+
+    // 3. Process the message content (with Markdown support and @mentions)
+    const cleanMsg = escapeHTML(data.msg || '');
+    const processedMsg = cleanMsg.replace(/@(\w+)/g, '<span class="mention">@$1</span>');
+
+    const bodyDiv = document.createElement('div');
+    bodyDiv.className = 'msg-body';
+    if (typeof marked !== 'undefined') {
+        bodyDiv.innerHTML = marked.parse(processedMsg);
+    } else {
+        bodyDiv.innerHTML = processedMsg;
+    }
+
+    // 4. Combine headers and bodies into the document block
+    msgItem.innerHTML = `<div class="msg-header" style="margin-bottom: 2px;">${userHeaderHTML}</div>`;
+    msgItem.appendChild(bodyDiv);
+
+    // Append to chat box and auto-scroll down
+    UI.chatMsgs.appendChild(msgItem);
     UI.chatMsgs.scrollTop = UI.chatMsgs.scrollHeight;
 }
 
@@ -336,12 +365,15 @@ function joinChannel(name) {
     currentChannel = name;
     localStorage.setItem('gv_selected_channel', name);
     
-    // Update UI active state
+    // Update UI active state safely
     if (UI.channelList) {
         const cards = Array.from(UI.channelList.querySelectorAll('.channel-card'));
         cards.forEach(c => {
-            const channelName = c.querySelector('.channel-name').textContent.trim();
-            c.classList.toggle('active', channelName === name);
+            const nameEl = c.querySelector('.channel-name');
+            if (nameEl) {
+                const channelName = nameEl.textContent.trim();
+                c.classList.toggle('active', channelName === name);
+            }
         });
     }
 
@@ -484,18 +516,43 @@ setInterval(function() {
 function showToast({ title, content, image }) {
     const container = document.getElementById('toast-container');
     if (!container) return;
-    const highlightedContent = content.replace(/@(\w+)/g, '<span class="mention">@$1</span>');
 
     const toast = document.createElement('div');
     toast.className = 'toast';
-    toast.innerHTML = `
-        <img src="${image}" class="toast-img">
-        <div class="toast-body">
-            <div class="toast-title">${title}</div>
-            <div class="toast-text">${highlightedContent}</div>
-        </div>
-        <div class="toast-bar"></div> `;
 
+    // Image Setup
+    const imgEl = document.createElement('img');
+    imgEl.className = 'toast-img';
+    imgEl.src = image || '';
+    imgEl.alt = 'Notification Avatar';
+
+    // Body Container
+    const bodyDiv = document.createElement('div');
+    bodyDiv.className = 'toast-body';
+
+    // Title Block
+    const titleDiv = document.createElement('div');
+    titleDiv.className = 'toast-title';
+    titleDiv.textContent = title || '';
+
+    // Message/Content text Block
+    const textDiv = document.createElement('div');
+    textDiv.className = 'toast-text';
+    
+    // Safely process mentions in notifications
+    const safeContent = escapeHTML(content || '');
+    textDiv.innerHTML = safeContent.replace(/@(\w+)/g, '<span class="mention">@$1</span>');
+
+    // Decorative Progress Bar
+    const barDiv = document.createElement('div');
+    barDiv.className = 'toast-bar';
+
+    // Assemble components securely without dangerous HTML template strings
+    bodyDiv.appendChild(titleDiv);
+    bodyDiv.appendChild(textDiv);
+    toast.appendChild(imgEl);
+    toast.appendChild(bodyDiv);
+    toast.appendChild(barDiv);
     container.appendChild(toast);
 
     const autoClose = setTimeout(() => closeToast(toast), 5000);
