@@ -594,18 +594,17 @@ document.addEventListener('mouseover', (e) => {
 });
 
 /* ==========================================================================
-   VISIBILITY & IDLE TRACKING
+   VISIBILITY & IDLE TRACKING (FIXED)
    ========================================================================== */
-// Visibility Tracker: Tells the server if the tab is focused or backgrounded
+let wasIdle = false;
+
 function emitStatus() {
     if (!socket || !socket.connected) return;
     
-    // Determine activity based on the current URL
     let currentActivity = "Browsing";
     const path = window.location.pathname;
     
     if (path.startsWith('/play/')) {
-        // Extracts game name from /play/game-name
         const gameName = path.split('/').pop().replace(/-/g, ' ').toUpperCase();
         currentActivity = `Playing ${gameName}`;
     } else if (path === '/chat') {
@@ -614,10 +613,11 @@ function emitStatus() {
         currentActivity = "Reviewing System Logs";
     }
 
-    // Determine idle/online status from recent user interaction timestamp
     const now = Date.now();
     const isIdle = (now - lastActivityTime) > IDLE_THRESHOLD_MS;
     const status = isIdle ? 'idle' : 'online';
+
+    wasIdle = isIdle; // Remember state locally
 
     socket.emit('heartbeat', {
         activity: currentActivity,
@@ -625,56 +625,30 @@ function emitStatus() {
     });
 }
 
-// Ensure it runs every 30 seconds to keep "Last Seen" fresh
-setInterval(emitStatus, 30000);
-document.addEventListener('visibilitychange', emitStatus);
-if (socket) { socket.on('connect', () => { emitStatus(); if (typeof joinChannel === 'function') joinChannel(currentChannel); }); }
-
-// Also ensure we join the selected channel on connect
-if (socket) {
-    socket.on('connect', () => { if (typeof joinChannel === 'function') joinChannel(currentChannel); });
-}
-
-function confirmDeletion() {
-    const username = document.getElementById('delete-username').value;
-    if (!username) return false;
-    
-    const doubleCheck = confirm(`CRITICAL ACTION: Are you sure you want to permanently delete user "${username}"?`);
-    
-    if (doubleCheck) {
-        return confirm("FINAL WARNING: This action cannot be undone. Proceed?");
-    }
-    return false;
-}
-
-function toggleFullscreen() {
-    const iframe = document.getElementById('game-iframe');
-    if (!iframe) return;
-    try {
-        if (document.fullscreenElement) {
-            document.exitFullscreen();
-        } else if (iframe.requestFullscreen) {
-            iframe.requestFullscreen();
-        } else if (iframe.webkitRequestFullscreen) {
-            iframe.webkitRequestFullscreen();
-        } else if (iframe.mozRequestFullScreen) {
-            iframe.mozRequestFullScreen();
-        } else if (iframe.msRequestFullscreen) {
-            iframe.msRequestFullscreen();
+// Reset idle clock AND immediately tell server if we were yellow
+['mousemove','keydown','scroll','click','touchstart','pointerdown'].forEach(evt => {
+    document.addEventListener(evt, () => { 
+        lastActivityTime = Date.now(); 
+        if (wasIdle) {
+            wasIdle = false;
+            emitStatus(); // Instantly tell the server we are back!
         }
-    } catch (e) {
-        console.warn('Fullscreen toggle failed', e);
-    }
-}
+    }, {passive: true});
+});
 
-if (socket) {
-    socket.on('mention_notification', (data) => {
-        // Wrap the arguments in curly braces to pass a single object
-        showToast({
-            title: `MENTION: ${data.channel}`,
-            content: data.msg || data.content || '', // showToast expects 'content'
-            image: `https://ui-avatars.com/api/?name=${data.sender}&background=818cf8&color=fff`
-        });
-    });
+// Run every 30 seconds, or instantly on tab focus changes
+setInterval(emitStatus, 30000);
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        lastActivityTime = Date.now(); // Reset time on tab return
+    }
+    emitStatus();
+});
+
+// Consolidated single connect block
+if (socket) { 
+    socket.on('connect', () => { 
+        emitStatus(); 
+        if (typeof joinChannel === 'function') joinChannel(currentChannel); 
+    }); 
 }
-// End of main.js
