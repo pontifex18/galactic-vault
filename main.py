@@ -13,7 +13,7 @@ from flask_socketio import SocketIO, emit, disconnect, join_room, leave_room
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
 from werkzeug.security import generate_password_hash, check_password_hash
-
+from better_profanity import profanity
 
 load_dotenv()
 
@@ -38,6 +38,10 @@ try:
 except Exception as e:
     print(f"Error loading config.toml: {e}")
     config_data = {}
+
+# Initialize profanity filter with custom words from config.toml
+custom_bad_words = config_data.get('blocked_words', [])
+profanity.load_censor_words(custom_bad_words)
 
 # Configurable values (Prioritize TOML, then Environment, then Defaults)
 PORT = int(config_data.get('port', os.environ.get('PORT', 8000)))
@@ -741,6 +745,9 @@ def handle_message(data):
     limit = 5000 if is_admin else config_data.get('max_message_size', 512)
     raw_msg = str(data.get('msg', ''))
     safe_msg = raw_msg[:limit]
+    
+    # --- PROFANITY FILTERING ---
+    safe_msg = profanity.censor(safe_msg, censor_char='\\*')
     
     user_role = get_user_role(user_id)
     msg_data = {
